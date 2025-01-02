@@ -1,34 +1,55 @@
 // src/core/StateEngine.js
-export class StateEngine {
-    constructor(sceneEngine) {
-        this.sceneEngine = sceneEngine;
-        
-        // Define UI elements with their callbacks
-        this.button1 = {
-            clicked: () => this.handleButton1Click(),
-            hover: (isHovered) => this.handleButton1Hover(isHovered)
-        };
+import { SceneEngine } from './SceneEngine';
+import { RenderManager } from './RenderManager';
+import { ResourceLoader } from './ResourceLoader';
 
-        console.log('📦 StateEngine created');
+export class StateEngine {
+    constructor(container) {
+        this.renderManager = new RenderManager(container);
+        this.resourceLoader = new ResourceLoader();
+        this.sceneEngine = new SceneEngine(this.renderManager, this.resourceLoader);
+        this.entities = new Map();
+        
+        this.bindInteractions();
     }
 
-    initialize() {
-        // Create test button
-        this.sceneEngine.createButton({
-            id: 'button1',
-            position: [0, 0],
-            color: [0.2, 0.8, 1.0],
-            callbacks: this.button1
+    async initialize() {
+        await this.resourceLoader.loadShaders();
+        this.renderManager.initialize();
+    }
+
+    bindInteractions() {
+        const canvas = this.renderManager.renderer.domElement;
+        canvas.addEventListener('click', (event) => {
+            const rect = canvas.getBoundingClientRect();
+            const x = ((event.clientX - rect.left) / rect.width) * 2 - 1;
+            const y = -((event.clientY - rect.top) / rect.height) * 2 + 1;
+            this.sceneEngine.handleInteraction({ x, y }, 'click');
         });
     }
 
-    handleButton1Click() {
-        console.log('Button 1 clicked!');
-        // Add any button-specific logic here
+    createButton(config) {
+        const entityId = this.sceneEngine.createButton({
+            ...config,
+            stateCallback: (state) => this.handleButtonStateChange(entityId, state)
+        });
+
+        this.entities.set(entityId, {
+            type: 'button',
+            state: { pressed: false }
+        });
+
+        return entityId;
     }
 
-    handleButton1Hover(isHovered) {
-        console.log('Button 1 hover:', isHovered);
-        // Add any hover-specific logic here
+    handleButtonStateChange(entityId, newState) {
+        const entity = this.entities.get(entityId);
+        if (entity) {
+            entity.state = { ...entity.state, ...newState };
+        }
+    }
+
+    update(time) {
+        this.sceneEngine.render(time);
     }
 }

@@ -1,36 +1,31 @@
 // src/main.js
 import * as THREE from 'three';
-import { ResourceLoader } from './core/ResourceLoader';
-import { RenderManager } from './core/RenderManager';
-import { SceneEngine } from './core/SceneEngine';
 import { StateEngine } from './core/StateEngine';
 
 class Main {
     constructor() {
-        // Create core systems
         this.clock = new THREE.Clock();
-        this.resourceLoader = new ResourceLoader();
-        this.renderManager = new RenderManager(document.body);
-        this.sceneEngine = new SceneEngine(this.renderManager, this.resourceLoader);
-        this.stateEngine = new StateEngine(this.sceneEngine);
+        this.stateEngine = new StateEngine(document.body);
     }
     
     async initialize() {
-        // Initialize core systems
-        await this.resourceLoader.loadShaders();
-        this.renderManager.initialize();
+        await this.stateEngine.initialize();
         
-        // Initialize state engine (this will create UI elements)
-        this.stateEngine.initialize();
+        // Create test button
+        this.stateEngine.createButton({
+            position: [0, 0],
+            callback: () => {
+                console.log('Button clicked!');
+            }
+        });
         
-        // Start render loop
         this.animate();
     }
     
-    animate() {
-        requestAnimationFrame(this.animate.bind(this));
+    animate = () => {
+        requestAnimationFrame(this.animate);
         const time = this.clock.getElapsedTime();
-        this.renderManager.render(time);
+        this.stateEngine.update(time);
     }
 }
 
