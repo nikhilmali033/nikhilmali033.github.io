@@ -1,33 +1,22 @@
 // src/main.js
-import * as THREE from 'three';
 import { StateEngine } from './core/StateEngine';
 
-class Main {
-    constructor() {
-        this.clock = new THREE.Clock();
-        this.stateEngine = new StateEngine(document.body);
+async function init() {
+    const container = document.getElementById('app');
+    if (!container) {
+        throw new Error('No container element found');
     }
-    
-    async initialize() {
-        await this.stateEngine.initialize();
-        
-        // Create test button
-        this.stateEngine.createButton({
-            position: [0, 0],
-            callback: () => {
-                console.log('Button clicked!');
-            }
-        });
-        
-        this.animate();
+
+    const stateEngine = new StateEngine(container);
+    await stateEngine.initialize();
+    stateEngine.createGameObjects();
+
+    // Start game loop
+    function animate(time) {
+        stateEngine.update(time);
+        requestAnimationFrame(animate);
     }
-    
-    animate = () => {
-        requestAnimationFrame(this.animate);
-        const time = this.clock.getElapsedTime();
-        this.stateEngine.update(time);
-    }
+    requestAnimationFrame(animate);
 }
 
-const app = new Main();
-app.initialize();
+init().catch(console.error);

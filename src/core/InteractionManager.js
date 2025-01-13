@@ -2,22 +2,29 @@
 import * as THREE from 'three';
 
 export class InteractionManager {
-    constructor(renderManager) {
-        this.renderManager = renderManager;
+    constructor() {
         this.raycaster = new THREE.Raycaster();
         this.mouse = new THREE.Vector2();
-        this.interactiveObjects = new Map();  // Maps meshes to their callbacks
+        this.interactiveObjects = new Map();
         this.selectedObject = null;
         this.isDragging = false;
+        this.camera = null;
+        this.scene = null;
     }
 
-    initialize() {
-        const canvas = this.renderManager.renderer.domElement;
+    initialize(camera, scene, domElement) {
+        this.camera = camera;
+        this.scene = scene;
         
-        canvas.addEventListener('mousemove', this.onMouseMove.bind(this));
-        canvas.addEventListener('mousedown', this.onMouseDown.bind(this));
-        canvas.addEventListener('mouseup', this.onMouseUp.bind(this));
-        canvas.addEventListener('mouseleave', this.onMouseLeave.bind(this));
+        // DOM event handling should be managed by SceneEngine
+        this.handleMouseMove = this.handleMouseMove.bind(this);
+        this.handleMouseDown = this.handleMouseDown.bind(this);
+        this.handleMouseUp = this.handleMouseUp.bind(this);
+    }
+
+    updateMouseCoordinates(x, y, viewportWidth, viewportHeight) {
+        this.mouse.x = (x / viewportWidth) * 2 - 1;
+        this.mouse.y = -(y / viewportHeight) * 2 + 1;
     }
 
     register(mesh, callbacks) {
@@ -33,36 +40,24 @@ export class InteractionManager {
         this.interactiveObjects.delete(mesh);
     }
 
-    updateMousePosition(event) {
-        const canvas = this.renderManager.renderer.domElement;
-        const rect = canvas.getBoundingClientRect();
-        
-        this.mouse.x = ((event.clientX - rect.left) / rect.width) * 2 - 1;
-        this.mouse.y = -((event.clientY - rect.top) / rect.height) * 2 + 1;
-    }
-
     findIntersectingObject() {
-        const intersects = [];
+        if (!this.camera || !this.scene) return null;
         
-        // Check each layer for intersections
-        this.renderManager.layers.forEach(({ scene, camera }) => {
-            this.raycaster.setFromCamera(this.mouse, camera);
-            
-            // Get only interactive objects from the scene
-            const meshes = scene.children.filter(obj => 
-                this.interactiveObjects.has(obj)
-            );
-            
-            intersects.push(...this.raycaster.intersectObjects(meshes));
-        });
-
-        // Return the closest intersection
+        this.raycaster.setFromCamera(this.mouse, this.camera);
+        
+        // Only check objects that are registered for interaction
+        const interactiveList = Array.from(this.interactiveObjects.keys());
+        const intersects = this.raycaster.intersectObjects(interactiveList, false);
+        
         return intersects.length > 0 ? intersects[0].object : null;
     }
 
-    onMouseMove(event) {
+    handleMouseMove(normalizedX, normalizedY) {
         const previousSelectedObject = this.selectedObject;
-        this.updateMousePosition(event);
+        
+        // Update mouse position with normalized coordinates
+        this.mouse.x = normalizedX;
+        this.mouse.y = normalizedY;
         
         const intersectedObject = this.findIntersectingObject();
         this.selectedObject = intersectedObject;
@@ -86,8 +81,7 @@ export class InteractionManager {
         }
     }
 
-    onMouseDown(event) {
-        this.updateMousePosition(event);
+    handleMouseDown() {
         const intersectedObject = this.findIntersectingObject();
         
         if (intersectedObject) {
@@ -99,23 +93,13 @@ export class InteractionManager {
         }
     }
 
-    onMouseUp(event) {
+    handleMouseUp() {
         if (this.selectedObject) {
             const callbacks = this.interactiveObjects.get(this.selectedObject);
             callbacks?.onRelease?.();
         }
         
         this.isDragging = false;
-    }
-
-    onMouseLeave(event) {
-        if (this.selectedObject) {
-            const callbacks = this.interactiveObjects.get(this.selectedObject);
-            callbacks?.onRelease?.();
-            callbacks?.onHover?.(false);
-        }
-        
         this.selectedObject = null;
-        this.isDragging = false;
     }
 }

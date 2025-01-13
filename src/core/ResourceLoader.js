@@ -3,52 +3,54 @@ import * as THREE from 'three';
 
 export class ResourceLoader {
     constructor() {
-        // Store shader code
-        this.shaderSources = new Map();
+        // Store shader pairs by base name (e.g., 'card' -> {vertex: string, fragment: string})
+        this.shaderPairs = new Map();
+        
         // Store compiled material templates
         this.materialTemplates = new Map();
+        
         console.log('📁 ResourceLoader initialized');
     }
 
     async loadShaders() {
         try {
-            console.log('⏳ Starting shader loading...');
+            console.log('⏳ Loading all shader files...');
             
-            const shaderModules = import.meta.glob('../shaders/**/*.{vert,frag}', { 
+            // Import all shader files
+            const shaderFiles = import.meta.glob('../shaders/**/*.{vert,frag}', { 
                 query: '?raw',
                 import: 'default'
             });
             
-            console.log('📁 Found shader files:', Object.keys(shaderModules));
-
-            // Load all shader files first
-            const loadPromises = Object.entries(shaderModules).map(async ([path, importFn]) => {
-                try {
-                    const content = await importFn();
-                    const { name, type } = this.parseShaderPath(path);
-                    
-                    // Store shader source pairs by base name
-                    if (!this.shaderSources.has(name)) {
-                        this.shaderSources.set(name, {});
-                    }
-                    this.shaderSources.get(name)[type] = this.processShader(content);
-                    
-                    console.log('✅ Loaded shader:', { name, type, path });
-                } catch (err) {
-                    console.error('❌ Failed to load shader:', { path, error: err });
+            // Load and pair shaders
+            const loadPromises = Object.entries(shaderFiles).map(async ([path, importFn]) => {
+                const content = await importFn();
+                const { name, type } = this.parseShaderPath(path);
+                
+                // Initialize shader pair if doesn't exist
+                if (!this.shaderPairs.has(name)) {
+                    this.shaderPairs.set(name, {});
                 }
+                
+                // Add shader content to pair
+                const pair = this.shaderPairs.get(name);
+                pair[type] = this.processShader(content);
+                
+                console.log(`✅ Loaded ${type} shader for ${name}`);
             });
 
             await Promise.all(loadPromises);
 
-            // Create material templates from shader pairs
-            for (const [name, shaders] of this.shaderSources.entries()) {
+            // Create material templates for complete shader pairs
+            for (const [name, shaders] of this.shaderPairs) {
                 if (shaders.vertex && shaders.fragment) {
-                    this.createMaterialTemplate(name, shaders.vertex, shaders.fragment);
+                    await this.createMaterialTemplate(name, shaders);
+                } else {
+                    console.error(`❌ Incomplete shader pair for ${name}`);
                 }
             }
 
-            console.log('📚 Created materials:', Array.from(this.materialTemplates.keys()));
+            console.log('📚 Available materials:', Array.from(this.materialTemplates.keys()));
             return true;
         } catch (error) {
             console.error('❌ Error loading shaders:', error);
@@ -71,33 +73,35 @@ export class ResourceLoader {
         return content.trim();
     }
 
-    createMaterialTemplate(name, vertexShader, fragmentShader) {
-        // Define default uniforms for this material type
-        const uniforms = this.getDefaultUniforms(name);
+    async createMaterialTemplate(name, shaders) {
+        try {
+            // Create the base material template with default properties
+            const material = new THREE.ShaderMaterial({
+                vertexShader: shaders.vertex,
+                fragmentShader: shaders.fragment,
+                transparent: true,
+                uniforms: this.getDefaultUniforms(name)
+            });
 
-        // Create the material template
-        const material = new THREE.ShaderMaterial({
-            uniforms: THREE.UniformsUtils.clone(uniforms),
-            vertexShader,
-            fragmentShader,
-            transparent: true,
-            blending: THREE.AdditiveBlending
-        });
-
-        this.materialTemplates.set(name, material);
+            this.materialTemplates.set(name, material);
+            console.log(`✅ Created material template: ${name}`);
+            return material;
+        } catch (error) {
+            console.error(`❌ Error creating material template ${name}:`, error);
+            return null;
+        }
     }
 
     getDefaultUniforms(materialName) {
-        // Define material-specific default uniforms
+        // Define default uniforms for each material type
         const defaults = {
-            'neon': {
+            'card': {
                 time: { value: 0 },
-                resolution: { value: new THREE.Vector2() },
-                glowColor: { value: new THREE.Vector3(1.0, 0.2, 0.5) },
-                glowIntensity: { value: 1.0 },
-                pulseSpeed: { value: 2.0 }
-            }
-            // Add other material types here
+                hover: { value: 0 },
+                selected: { value: 0 },
+                highlightColor: { value: new THREE.Vector3(1.0, 0.8, 0.2) }
+            },
+            // Add other material defaults here
         };
 
         return defaults[materialName] || {};
@@ -106,14 +110,14 @@ export class ResourceLoader {
     createMaterial(name, customUniforms = {}) {
         const template = this.materialTemplates.get(name);
         if (!template) {
-            console.warn('⚠️ Material template not found:', name);
+            console.error(`❌ Material ${name} not found`);
             return null;
         }
 
         // Clone the template material
         const material = template.clone();
         
-        // Clone uniforms deeply and merge with custom uniforms
+        // Clone uniforms and merge with custom uniforms
         material.uniforms = THREE.UniformsUtils.clone(template.uniforms);
         Object.entries(customUniforms).forEach(([key, value]) => {
             if (material.uniforms[key]) {

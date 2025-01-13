@@ -3,53 +3,78 @@ import { SceneEngine } from './SceneEngine';
 import { RenderManager } from './RenderManager';
 import { ResourceLoader } from './ResourceLoader';
 
+// In StateEngine.js
+
 export class StateEngine {
     constructor(container) {
-        this.renderManager = new RenderManager(container);
+        this.container = container;
         this.resourceLoader = new ResourceLoader();
-        this.sceneEngine = new SceneEngine(this.renderManager, this.resourceLoader);
+        this.sceneEngine = new SceneEngine(this.resourceLoader);
+        this.renderManager = new RenderManager();
         this.entities = new Map();
-        
-        this.bindInteractions();
     }
+
 
     async initialize() {
         await this.resourceLoader.loadShaders();
-        this.renderManager.initialize();
+        
+        // Initialize scene first
+        this.sceneEngine.initialize(this.renderManager.domElement);
+        
+        // Then initialize renderer with container
+        this.renderManager.initialize(this.container);
     }
 
-    bindInteractions() {
-        const canvas = this.renderManager.renderer.domElement;
-        canvas.addEventListener('click', (event) => {
-            const rect = canvas.getBoundingClientRect();
-            const x = ((event.clientX - rect.left) / rect.width) * 2 - 1;
-            const y = -((event.clientY - rect.top) / rect.height) * 2 + 1;
-            this.sceneEngine.handleInteraction({ x, y }, 'click');
+    trackEntity(id, type, initialState = {}) {
+        this.entities.set(id, {
+            type,
+            state: initialState
         });
+        return id;
     }
 
-    createButton(config) {
-        const entityId = this.sceneEngine.createButton({
-            ...config,
-            stateCallback: (state) => this.handleButtonStateChange(entityId, state)
+    createGameObjects() {
+        // Create test card in center
+        const testCard = this.sceneEngine.createCard({
+            position: [0, 0],
+            width: 1,
+            height: 1.4
+        });
+        this.trackEntity(testCard.id, 'card', {
+            isDragging: false,
+            position: [0, 0],
+            rotation: 0
         });
 
-        this.entities.set(entityId, {
-            type: 'button',
-            state: { pressed: false }
+        // Create a few more test cards with slight offsets
+        const positions = [
+            [-1.5, 1],
+            [1.5, 1],
+            [0, -1.5]
+        ];
+
+        positions.forEach(pos => {
+            const card = this.sceneEngine.createCard({
+                position: pos,
+                width: 1,
+                height: 1.4
+            });
+            this.trackEntity(card.id, 'card', {
+                isDragging: false,
+                position: pos,
+                rotation: 0
+            });
         });
-
-        return entityId;
-    }
-
-    handleButtonStateChange(entityId, newState) {
-        const entity = this.entities.get(entityId);
-        if (entity) {
-            entity.state = { ...entity.state, ...newState };
-        }
     }
 
     update(time) {
-        this.sceneEngine.render(time);
+        const scene = this.sceneEngine.getScene();
+        const camera = this.sceneEngine.getCamera();
+        
+        // Update game state
+        this.sceneEngine.updateUniforms(time);
+        
+        // Render
+        this.renderManager.render(scene, camera);
     }
 }
