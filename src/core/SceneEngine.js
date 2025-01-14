@@ -1,6 +1,6 @@
-// src/core/SceneEngine.js
 import * as THREE from 'three';
 import { InteractionManager } from './InteractionManager';
+import { Card } from '../objects/Card.js';
 
 export class SceneEngine {
     constructor(resourceLoader) {
@@ -9,30 +9,48 @@ export class SceneEngine {
         
         // Scene setup
         this.scene = new THREE.Scene();
-        this.setupCamera();
         
-        // DOM element for event handling
+        // Initialize core components
+        this.setupCamera();
         this.domElement = null;
         
-        // Entity and layer tracking
-        this.entities = new Map();
-        this.entitiesNeedingUpdate = new Set();
+        // Layer management with object tracking
         this.layers = new Map([
-            ['background', { zIndex: 0, objects: new Set() }],
-            ['cards', { zIndex: 1, objects: new Set() }],
-            ['ui', { zIndex: 2, objects: new Set() }],
-            ['effects', { zIndex: 3, objects: new Set() }],
-            ['overlay', { zIndex: 4, objects: new Set() }]
+            ['background', { 
+                zIndex: 0, 
+                group: new THREE.Group(),
+                objects: new Map()  // Maps object types to Sets of objects
+            }],
+            ['cards', { 
+                zIndex: 1, 
+                group: new THREE.Group(),
+                objects: new Map()
+            }],
+            ['ui', { 
+                zIndex: 2, 
+                group: new THREE.Group(),
+                objects: new Map()
+            }],
+            ['effects', { 
+                zIndex: 3, 
+                group: new THREE.Group(),
+                objects: new Map()
+            }],
+            ['overlay', { 
+                zIndex: 4, 
+                group: new THREE.Group(),
+                objects: new Map()
+            }]
         ]);
 
-        // Initialize layer groups
-        this.layerGroups = new Map();
+        // Initialize layer groups in scene
         this.layers.forEach((layer, name) => {
-            const group = new THREE.Group();
-            group.position.z = layer.zIndex * 0.1;
-            this.scene.add(group);
-            this.layerGroups.set(name, group);
+            layer.group.position.z = layer.zIndex * 0.1;
+            this.scene.add(layer.group);
         });
+
+        // Entity tracking for interaction management
+        this.entities = new Map();
     }
 
     initialize(domElement) {
@@ -47,14 +65,13 @@ export class SceneEngine {
             -aspect, aspect, 1, -1, 0.1, 1000
         );
         this.camera.position.z = 1;
-        
-        window.addEventListener('resize', () => {
-            const { width, height } = this.renderManager.handleResize();
-            const aspect = width / height;
-            this.camera.left = -aspect;
-            this.camera.right = aspect;
-            this.camera.updateProjectionMatrix();
-        });
+    }
+
+    updateCameraAspect(width, height) {
+        const aspect = width / height;
+        this.camera.left = -aspect;
+        this.camera.right = aspect;
+        this.camera.updateProjectionMatrix();
     }
 
     setupEventListeners() {
@@ -84,201 +101,186 @@ export class SceneEngine {
         });
     }
 
-    setupCamera() {
-        const aspect = window.innerWidth / window.innerHeight;
-        this.camera = new THREE.OrthographicCamera(
-            -aspect, aspect, 1, -1, 0.1, 1000
-        );
-        this.camera.position.z = 1;
-    }
-
-    updateCameraAspect(width, height) {
-        const aspect = width / height;
-        this.camera.left = -aspect;
-        this.camera.right = aspect;
-        this.camera.updateProjectionMatrix();
-    }
-
-    // Methods to expose scene data to RenderManager
-    getScene() {
-        return this.scene;
-    }
-
-    getCamera() {
-        return this.camera;
-    }
-
-    getDomElement() {
-        return this.domElement;
-    }
-
-    addToLayer(object, layerName) {
+    // Layer Management Methods
+    registerObject(object, type, layerName) {
         const layer = this.layers.get(layerName);
-        const group = this.layerGroups.get(layerName);
-        
-        if (!layer || !group) {
+        if (!layer) {
             console.error(`Layer ${layerName} not found`);
             return false;
         }
 
-        // Remove from current layer if it exists
-        this.removeFromCurrentLayer(object);
+        // Initialize object type Set if it doesn't exist
+        if (!layer.objects.has(type)) {
+            layer.objects.set(type, new Set());
+        }
 
-        // Add to new layer
-        layer.objects.add(object);
-        group.add(object);
+        // Add object to layer's type set
+        layer.objects.get(type).add(object);
         
-        // Set base z position based on layer
-        object.position.z = 0; // Relative to group's z position
+        // Add mesh to layer group
+        layer.group.add(object.mesh);
+        
+        // Register for interaction if needed
+        if (object.mesh) {
+            this.registerInteraction(object);
+        }
+
         return true;
     }
 
-    removeFromCurrentLayer(object) {
-        for (const [name, layer] of this.layers) {
-            if (layer.objects.has(object)) {
-                layer.objects.delete(object);
-                const group = this.layerGroups.get(name);
-                if (group) {
-                    group.remove(object);
-                }
-                break;
+    unregisterObject(object, type, layerName) {
+        const layer = this.layers.get(layerName);
+        if (!layer) return false;
+
+        const typeSet = layer.objects.get(type);
+        if (!typeSet) return false;
+
+        // Remove from layer tracking
+        typeSet.delete(object);
+        
+        // Remove mesh from layer group
+        if (object.mesh) {
+            layer.group.remove(object.mesh);
+            this.interactionManager.unregister(object.mesh);
+        }
+
+        return true;
+    }
+
+    moveObjectToLayer(object, type, fromLayer, toLayer) {
+        if (this.unregisterObject(object, type, fromLayer)) {
+            return this.registerObject(object, type, toLayer);
+        }
+        return false;
+    }
+
+    getObjectsInLayer(layerName, type = null) {
+        const layer = this.layers.get(layerName);
+        if (!layer) return new Set();
+
+        if (type) {
+            return layer.objects.get(type) || new Set();
+        }
+
+        // Combine all object sets if no type specified
+        const allObjects = new Set();
+        for (const objects of layer.objects.values()) {
+            for (const obj of objects) {
+                allObjects.add(obj);
             }
         }
+        return allObjects;
     }
 
-    getTopZIndexInLayer(layerName) {
-        const layer = this.layers.get(layerName);
-        if (!layer) return 0;
-
-        let maxZ = 0;
-        layer.objects.forEach(obj => {
-            maxZ = Math.max(maxZ, obj.position.z);
-        });
-        return maxZ;
+    // Object Creation Methods
+    createCard(config) {
+        const { position, width, height, layer = 'cards' } = config;
+        const cardEntity = Card.create(this, { position, width, height });
+        
+        // Register card in appropriate layer
+        this.registerObject(cardEntity, 'card', layer);
+        
+        // Track entity for general management
+        this.entities.set(cardEntity.mesh.uuid, cardEntity);
+        
+        return {
+            id: cardEntity.mesh.uuid,
+            mesh: cardEntity.mesh,
+            material: cardEntity.material
+        };
     }
 
-    bringToFront(object, layerName) {
-        const layer = this.layers.get(layerName);
-        if (!layer) return;
+    registerInteraction(object) {
+        if (!object.mesh) return;
 
-        const topZ = this.getTopZIndexInLayer(layerName);
-        object.position.z = topZ + 0.01;
-    }
-
-
-        // Inside SceneEngine.js
-
-    createCard({ position, width = 1, height = 1.4, layer = 'cards' }) {
-        // Create card geometry with rounded corners
-        const shape = new THREE.Shape();
-        const radius = 0.1;
-        
-        shape.moveTo(-width/2 + radius, -height/2);
-        shape.lineTo(width/2 - radius, -height/2);
-        shape.quadraticCurveTo(width/2, -height/2, width/2, -height/2 + radius);
-        shape.lineTo(width/2, height/2 - radius);
-        shape.quadraticCurveTo(width/2, height/2, width/2 - radius, height/2);
-        shape.lineTo(-width/2 + radius, height/2);
-        shape.quadraticCurveTo(-width/2, height/2, -width/2, height/2 - radius);
-        shape.lineTo(-width/2, -height/2 + radius);
-        shape.quadraticCurveTo(-width/2, -height/2, -width/2 + radius, -height/2);
-
-        const geometry = new THREE.ShapeGeometry(shape);
-        
-        // Get material from ResourceLoader
-        const material = this.resourceLoader.createMaterial('card', {
-            // Any custom uniform values can be set here
-            hover: { value: 0.0 },
-            selected: { value: 0.0 },
-            time: { value: 0.0 }
-        });
-
-        if (!material) {
-            console.error('Failed to create card material');
-            return null;
-        }
-
-        const mesh = new THREE.Mesh(geometry, material);
-        mesh.position.set(position[0], position[1], 0);
-        
-        // Add to appropriate layer
-        this.addToLayer(mesh, layer);
-
-        // Register card interactions
-        this.interactionManager.register(mesh, {
+        this.interactionManager.register(object.mesh, {
             onHover: (isHovered) => {
-                console.log('superballs')
-                if (!material.uniforms) return;
-                material.uniforms.hover.value = isHovered ? 1.0 : 0.0;
-                mesh.scale.set(isHovered ? 1.05 : 1.0, isHovered ? 1.05 : 1.0, 1.0);
+                if (!object.material?.uniforms) return;
+                object.material.uniforms.hover.value = isHovered ? 1.0 : 0.0;
+                object.mesh.scale.set(
+                    isHovered ? 1.05 : 1.0,
+                    isHovered ? 1.05 : 1.0,
+                    1.0
+                );
             },
             onPress: () => {
-                if (!material.uniforms) return;
-                material.uniforms.selected.value = 1.0;
-                // Track original position for drag handling
-                const entityData = this.entities.get(mesh.uuid);
-                if (entityData) {
-                    entityData.dragStart = {
-                        position: mesh.position.clone(),
-                        mousePosition: this.interactionManager.mouse.clone()
-                    };
-                }
-                this.bringToFront(mesh, layer);
+                if (!object.material?.uniforms) return;
+                object.material.uniforms.selected.value = 1.0;
+                this.bringToFront(object);
             },
             onDrag: (mousePosition) => {
-                const entityData = this.entities.get(mesh.uuid);
-                if (!entityData || !entityData.dragStart) return;
-                
-                const deltaX = mousePosition.x - entityData.dragStart.mousePosition.x;
-                const deltaY = mousePosition.y - entityData.dragStart.mousePosition.y;
-                
-                mesh.position.x = entityData.dragStart.position.x + deltaX;
-                mesh.position.y = entityData.dragStart.position.y + deltaY;
+                // Update position based on mouse movement
+                const worldPos = new THREE.Vector3(
+                    mousePosition.x,
+                    mousePosition.y,
+                    0
+                ).unproject(this.camera);
+                object.mesh.position.x = worldPos.x;
+                object.mesh.position.y = worldPos.y;
             },
             onRelease: () => {
-                if (!material.uniforms) return;
-                material.uniforms.selected.value = 0.0;
-                
-                // Clear drag tracking
-                const entityData = this.entities.get(mesh.uuid);
-                if (entityData) {
-                    delete entityData.dragStart;
-                }
+                if (!object.material?.uniforms) return;
+                object.material.uniforms.selected.value = 0.0;
             }
         });
-
-        // Track entity
-        const entityData = {
-            mesh,
-            type: 'card',
-            material,
-            needsTimeUpdate: true
-        };
-
-        this.entities.set(mesh.uuid, entityData);
-        this.entitiesNeedingUpdate.add(mesh.uuid);
-
-        return {
-            id: mesh.uuid,
-            mesh,
-            material
-        };
     }
 
-
-    updateUniforms(time) {
-        for (const id of this.entitiesNeedingUpdate) {
-            const entity = this.entities.get(id);
-            if (!entity) continue;
-
-            if (entity.needsTimeUpdate) {
-                entity.material.uniforms.time.value = time;
+    bringToFront(object) {
+        for (const [layerName, layer] of this.layers) {
+            for (const objects of layer.objects.values()) {
+                if (objects.has(object)) {
+                    // Find max Z in current layer
+                    let maxZ = 0;
+                    objects.forEach(obj => {
+                        if (obj.mesh && obj !== object) {
+                            maxZ = Math.max(maxZ, obj.mesh.position.z);
+                        }
+                    });
+                    // Set object slightly above max Z
+                    object.mesh.position.z = maxZ + 0.01;
+                    return;
+                }
             }
         }
     }
 
-    render(time) {
-        this.updateUniforms(time);
-        this.renderManager.render(this.scene, this.camera);
+    // Update Methods
+    update(time) {
+        // Update all objects by type in each layer
+        for (const [layerName, layer] of this.layers) {
+            // Update cards
+            const cards = layer.objects.get('card') || new Set();
+            for (const card of cards) {
+                // Verify card is valid before updating
+                if (!card || !card.mesh || !card.material) {
+                    console.warn(`Invalid card object found in layer ${layerName}`);
+                    continue;
+                }
+
+                try {
+                    Card.update(this, card, this.interactionManager.mouse);
+                    
+                    // Only update time if uniforms exist and update is needed
+                    if (card.needsTimeUpdate && 
+                        card.material.uniforms && 
+                        card.material.uniforms.time) {
+                        card.material.uniforms.time.value = time;
+                    }
+                } catch (error) {
+                    console.error(`Error updating card in layer ${layerName}:`, error);
+                }
+            }
+
+            // Add other object type updates here as needed
+            // const buttons = layer.objects.get('button') || new Set();
+            // for (const button of buttons) {
+            //     Button.update(this, button);
+            // }
+        }
     }
+
+    // Scene Access Methods
+    getScene() { return this.scene; }
+    getCamera() { return this.camera; }
+    getDomElement() { return this.domElement; }
 }

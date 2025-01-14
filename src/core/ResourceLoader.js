@@ -96,15 +96,17 @@ export class ResourceLoader {
         // Define default uniforms for each material type
         const defaults = {
             'card': {
-                time: { value: 0 },
-                hover: { value: 0 },
-                selected: { value: 0 },
-                highlightColor: { value: new THREE.Vector3(1.0, 0.8, 0.2) }
-            },
-            // Add other material defaults here
+                uniforms: {
+                    time: { type: 'f', value: 0.0 },
+                    hover: { type: 'f', value: 0.0 },
+                    selected: { type: 'f', value: 0.0 },
+                    normal: { type: 'v3', value: new THREE.Vector3(0, 0, 1) },
+                    highlightColor: { type: 'v3', value: new THREE.Vector3(1.0, 0.8, 0.2) }
+                }
+            }
         };
-
-        return defaults[materialName] || {};
+    
+        return defaults[materialName]?.uniforms || {};
     }
 
     createMaterial(name, customUniforms = {}) {
@@ -113,18 +115,28 @@ export class ResourceLoader {
             console.error(`❌ Material ${name} not found`);
             return null;
         }
-
+    
         // Clone the template material
         const material = template.clone();
         
-        // Clone uniforms and merge with custom uniforms
-        material.uniforms = THREE.UniformsUtils.clone(template.uniforms);
+        // Set up uniforms properly
+        const baseUniforms = this.getDefaultUniforms(name);
+        material.uniforms = {};
+        
+        // Add base uniforms
+        Object.entries(baseUniforms).forEach(([key, value]) => {
+            material.uniforms[key] = { type: value.type, value: value.value };
+        });
+    
+        // Merge custom uniforms
         Object.entries(customUniforms).forEach(([key, value]) => {
             if (material.uniforms[key]) {
-                material.uniforms[key].value = value;
+                material.uniforms[key].value = value.value;
             }
         });
-
+    
         return material;
     }
+
+
 }

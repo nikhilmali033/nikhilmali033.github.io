@@ -72,7 +72,7 @@ export class StateEngine {
         const camera = this.sceneEngine.getCamera();
         
         // Update game state
-        this.sceneEngine.updateUniforms(time);
+        this.sceneEngine.update(time);
         
         // Render
         this.renderManager.render(scene, camera);
