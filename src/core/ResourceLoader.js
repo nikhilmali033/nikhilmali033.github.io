@@ -100,7 +100,9 @@ export class ResourceLoader {
                     hover: { type: 'f', value: 0.0 },
                     selected: { type: 'f', value: 0.0 },
                     tiltNormal: { type: 'v3', value: new THREE.Vector3(0, 0, 1) },  // renamed from 'normal'
-                    highlightColor: { type: 'v3', value: new THREE.Vector3(1.0, 0.8, 0.2) }
+                    highlightColor: { type: 'v3', value: new THREE.Vector3(1.0, 0.8, 0.2) },
+                    glowColor: { type: 'v3', value: new THREE.Vector3(50, 100, 100) },
+                    glowIntensity: { type: 'f', value: 0.0 }
                 }
             }
         };

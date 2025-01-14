@@ -49,9 +49,9 @@ export class InteractionManager {
         const interactiveList = Array.from(this.interactiveObjects.keys());
         const intersects = this.raycaster.intersectObjects(interactiveList, false);
         
-        return intersects.length > 0 ? intersects[0].object : null;
+        return intersects.length > 0 ? intersects[0] : null;  // Return full intersection data
     }
-
+    
     handleMouseMove(normalizedX, normalizedY) {
         const previousSelectedObject = this.selectedObject;
         
@@ -59,25 +59,29 @@ export class InteractionManager {
         this.mouse.x = normalizedX;
         this.mouse.y = normalizedY;
         
-        const intersectedObject = this.findIntersectingObject();
-        this.selectedObject = intersectedObject;
-
-        // Handle hover states
+        const intersection = this.findIntersectingObject();
+        this.selectedObject = intersection?.object || null;  // Store object reference
+    
+        // Handle hover states with intersection data
         if (previousSelectedObject !== this.selectedObject) {
             if (previousSelectedObject) {
                 const callbacks = this.interactiveObjects.get(previousSelectedObject);
-                callbacks?.onHover?.(false);
+                callbacks?.onHover?.(false, null);
             }
             if (this.selectedObject) {
                 const callbacks = this.interactiveObjects.get(this.selectedObject);
-                callbacks?.onHover?.(true);
+                callbacks?.onHover?.(true, intersection);
             }
+        } else if (this.selectedObject) {
+            // Update hover with new intersection data even if same object
+            const callbacks = this.interactiveObjects.get(this.selectedObject);
+            callbacks?.onHover?.(true, intersection);
         }
-
-        // Handle dragging
+    
+        // Handle dragging with intersection data
         if (this.isDragging && this.selectedObject) {
             const callbacks = this.interactiveObjects.get(this.selectedObject);
-            callbacks?.onDrag?.(this.mouse);
+            callbacks?.onDrag?.(this.mouse, intersection);
         }
     }
 

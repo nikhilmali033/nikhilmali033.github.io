@@ -190,26 +190,23 @@ export class SceneEngine {
         };
     }
 
+    // In SceneEngine.js (update registration to handle intersection data)
     registerInteraction(object) {
         if (!object.mesh) return;
 
         this.interactionManager.register(object.mesh, {
-            onHover: (isHovered) => {
+            onHover: (isHovered, intersection) => {
                 if (!object.material?.uniforms) return;
                 object.material.uniforms.hover.value = isHovered ? 1.0 : 0.0;
-                object.mesh.scale.set(
-                    isHovered ? 1.05 : 1.0,
-                    isHovered ? 1.05 : 1.0,
-                    1.0
-                );
+                object.state.isHovered = isHovered;
+                object.state.lastIntersection = intersection;  // Store intersection data
             },
             onPress: () => {
                 if (!object.material?.uniforms) return;
                 object.material.uniforms.selected.value = 1.0;
                 this.bringToFront(object);
             },
-            onDrag: (mousePosition) => {
-                // Update position based on mouse movement
+            onDrag: (mousePosition, intersection) => {
                 const worldPos = new THREE.Vector3(
                     mousePosition.x,
                     mousePosition.y,
@@ -217,6 +214,7 @@ export class SceneEngine {
                 ).unproject(this.camera);
                 object.mesh.position.x = worldPos.x;
                 object.mesh.position.y = worldPos.y;
+                object.state.lastIntersection = intersection;  // Update intersection data
             },
             onRelease: () => {
                 if (!object.material?.uniforms) return;
@@ -224,6 +222,10 @@ export class SceneEngine {
             }
         });
     }
+
+
+
+
 
     bringToFront(object) {
         for (const [layerName, layer] of this.layers) {
