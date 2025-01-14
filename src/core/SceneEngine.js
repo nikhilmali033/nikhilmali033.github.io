@@ -7,19 +7,17 @@ export class SceneEngine {
         this.resourceLoader = resourceLoader;
         this.interactionManager = new InteractionManager();
         
-        // Scene setup
         this.scene = new THREE.Scene();
         
-        // Initialize core components
         this.setupCamera();
         this.domElement = null;
         
-        // Layer management with object tracking
+        // Layer management
         this.layers = new Map([
             ['background', { 
                 zIndex: 0, 
                 group: new THREE.Group(),
-                objects: new Map()  // Maps object types to Sets of objects
+                objects: new Map()
             }],
             ['cards', { 
                 zIndex: 1, 
@@ -43,13 +41,12 @@ export class SceneEngine {
             }]
         ]);
 
-        // Initialize layer groups in scene
+        // Initialize layers
         this.layers.forEach((layer, name) => {
             layer.group.position.z = layer.zIndex * 0.1;
             this.scene.add(layer.group);
         });
 
-        // Entity tracking for interaction management
         this.entities = new Map();
     }
 
@@ -85,6 +82,7 @@ export class SceneEngine {
             const normalizedX = (x / rect.width) * 2 - 1;
             const normalizedY = -(y / rect.height) * 2 + 1;
             
+            // Now only updates mouse coordinates
             this.interactionManager.handleMouseMove(normalizedX, normalizedY);
         });
         
@@ -177,19 +175,26 @@ export class SceneEngine {
         const { position, width, height, layer = 'cards' } = config;
         const cardEntity = Card.create(this, { position, width, height });
         
-        // Register card in appropriate layer
+        if (!cardEntity) {
+            console.error('Failed to create card');
+            return null;
+        }
+
+        // Register card in layer system
         this.registerObject(cardEntity, 'card', layer);
         
-        // Track entity for general management
+        // Track entity
         this.entities.set(cardEntity.mesh.uuid, cardEntity);
         
+        // Simplified registration - card handles its own interaction behavior now
+        this.interactionManager.register(cardEntity.mesh, {});
+
         return {
             id: cardEntity.mesh.uuid,
             mesh: cardEntity.mesh,
             material: cardEntity.material
         };
     }
-
     // In SceneEngine.js (update registration to handle intersection data)
     registerInteraction(object) {
         if (!object.mesh) return;
@@ -248,36 +253,44 @@ export class SceneEngine {
 
     // Update Methods
     update(time) {
+        // Update interaction manager to get latest intersection data
+        this.interactionManager.update(time);
+
+        // Get current intersection state
+        const currentIntersection = this.interactionManager.findIntersectingObject();
+        const mouseState = {
+            position: this.interactionManager.mouse,
+            isDragging: this.interactionManager.isDragging
+        };
+
         // Update all objects by type in each layer
         for (const [layerName, layer] of this.layers) {
             // Update cards
             const cards = layer.objects.get('card') || new Set();
             for (const card of cards) {
-                // Verify card is valid before updating
                 if (!card || !card.mesh || !card.material) {
                     console.warn(`Invalid card object found in layer ${layerName}`);
                     continue;
                 }
 
                 try {
-                    Card.update(this, card, this.interactionManager.mouse);
-                    
-                    // Only update time if uniforms exist and update is needed
-                    if (card.needsTimeUpdate && 
-                        card.material.uniforms && 
-                        card.material.uniforms.time) {
-                        card.material.uniforms.time.value = time;
-                    }
+                    // Determine if this card is the one being intersected
+                    const isThisCard = currentIntersection?.object === card.mesh;
+                    const intersectionData = isThisCard ? {
+                        ...currentIntersection,
+                        isDragging: mouseState.isDragging,
+                        mousePosition: mouseState.position
+                    } : null;
+
+                    // Update card with full intersection data
+                    Card.update(this, card, intersectionData, time);
+
                 } catch (error) {
                     console.error(`Error updating card in layer ${layerName}:`, error);
                 }
             }
 
-            // Add other object type updates here as needed
-            // const buttons = layer.objects.get('button') || new Set();
-            // for (const button of buttons) {
-            //     Button.update(this, button);
-            // }
+            // Future: Add other object type updates here
         }
     }
 

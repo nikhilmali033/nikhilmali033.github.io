@@ -10,21 +10,33 @@ export class InteractionManager {
         this.isDragging = false;
         this.camera = null;
         this.scene = null;
+        
+        // New state tracking
+        this.lastIntersectedObject = null;
+        this.lastMousePosition = new THREE.Vector2();
+        this.mouseHasMoved = false;
     }
 
     initialize(camera, scene, domElement) {
         this.camera = camera;
         this.scene = scene;
         
-        // DOM event handling should be managed by SceneEngine
+        // Bind methods
         this.handleMouseMove = this.handleMouseMove.bind(this);
         this.handleMouseDown = this.handleMouseDown.bind(this);
         this.handleMouseUp = this.handleMouseUp.bind(this);
     }
 
     updateMouseCoordinates(x, y, viewportWidth, viewportHeight) {
+        // Store last position for movement detection
+        this.lastMousePosition.copy(this.mouse);
+        
+        // Update current position
         this.mouse.x = (x / viewportWidth) * 2 - 1;
         this.mouse.y = -(y / viewportHeight) * 2 + 1;
+        
+        // Set flag if mouse has moved
+        this.mouseHasMoved = !this.lastMousePosition.equals(this.mouse);
     }
 
     register(mesh, callbacks) {
@@ -45,55 +57,66 @@ export class InteractionManager {
         
         this.raycaster.setFromCamera(this.mouse, this.camera);
         
-        // Only check objects that are registered for interaction
         const interactiveList = Array.from(this.interactiveObjects.keys());
         const intersects = this.raycaster.intersectObjects(interactiveList, false);
         
-        return intersects.length > 0 ? intersects[0] : null;  // Return full intersection data
+        return intersects.length > 0 ? intersects[0] : null;
     }
-    
-    handleMouseMove(normalizedX, normalizedY) {
-        const previousSelectedObject = this.selectedObject;
-        
-        // Update mouse position with normalized coordinates
-        this.mouse.x = normalizedX;
-        this.mouse.y = normalizedY;
-        
+
+    // New update method for the main loop
+    update(time) {
         const intersection = this.findIntersectingObject();
-        this.selectedObject = intersection?.object || null;  // Store object reference
-    
-        // Handle hover states with intersection data
-        if (previousSelectedObject !== this.selectedObject) {
-            if (previousSelectedObject) {
-                const callbacks = this.interactiveObjects.get(previousSelectedObject);
+        const intersectedObject = intersection?.object || null;
+        
+        // Handle hover state changes
+        if (intersectedObject !== this.lastIntersectedObject) {
+            // Handle unhover for previous object
+            if (this.lastIntersectedObject) {
+                const callbacks = this.interactiveObjects.get(this.lastIntersectedObject);
                 callbacks?.onHover?.(false, null);
             }
-            if (this.selectedObject) {
-                const callbacks = this.interactiveObjects.get(this.selectedObject);
+            
+            // Handle hover for new object
+            if (intersectedObject) {
+                const callbacks = this.interactiveObjects.get(intersectedObject);
                 callbacks?.onHover?.(true, intersection);
             }
-        } else if (this.selectedObject) {
-            // Update hover with new intersection data even if same object
-            const callbacks = this.interactiveObjects.get(this.selectedObject);
+            
+            this.lastIntersectedObject = intersectedObject;
+        }
+        // Update hover state even if same object (for intersection data)
+        else if (intersectedObject && this.mouseHasMoved) {
+            const callbacks = this.interactiveObjects.get(intersectedObject);
             callbacks?.onHover?.(true, intersection);
         }
-    
-        // Handle dragging with intersection data
+        
+        // Handle dragging
         if (this.isDragging && this.selectedObject) {
             const callbacks = this.interactiveObjects.get(this.selectedObject);
             callbacks?.onDrag?.(this.mouse, intersection);
         }
+        
+        // Reset movement flag
+        this.mouseHasMoved = false;
+    }
+
+    // Simplified mouse event handlers
+    handleMouseMove(normalizedX, normalizedY) {
+        // Just update coordinates, raycasting happens in update loop
+        this.mouse.x = normalizedX;
+        this.mouse.y = normalizedY;
+        this.mouseHasMoved = true;
     }
 
     handleMouseDown() {
-        const intersectedObject = this.findIntersectingObject();
+        const intersection = this.findIntersectingObject();
         
-        if (intersectedObject) {
-            this.selectedObject = intersectedObject;
+        if (intersection) {
+            this.selectedObject = intersection.object;
             this.isDragging = true;
             
-            const callbacks = this.interactiveObjects.get(intersectedObject);
-            callbacks?.onPress?.();
+            const callbacks = this.interactiveObjects.get(this.selectedObject);
+            callbacks?.onPress?.(intersection);
         }
     }
 
