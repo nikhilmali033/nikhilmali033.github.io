@@ -2,250 +2,313 @@
 import * as THREE from 'three';
 
 export class Card {
-    static createGeometry(width = 1, height = 1.4) {
-        return new THREE.PlaneGeometry(width, height);
-    }
+    static create(config = {}) {
+        const {
+            width = 1,
+            height = 1.4,
+            position = [0, 0, 0]
+        } = config;
 
-    static createMaterial(resourceLoader) {
-        return resourceLoader.createMaterial('card');
-    }
+        // Create basic mesh
+        const geometry = new THREE.PlaneGeometry(width, height);
+        const material = null; // Will be set by SceneEngine via resourceLoader
+        const mesh = new THREE.Mesh(geometry);
+        console.log('balls')
 
-    static create(sceneEngine, { position, width = 1, height = 1.4 }) {
-        const geometry = Card.createGeometry(width, height);
-        const material = Card.createMaterial(sceneEngine.resourceLoader);
+        // Set initial position
+        mesh.position.set(...position);
 
-        if (!material) {
-            console.error('Failed to create card - material creation failed');
-            return null;
-        }
+        // Initial state
+        const state = {
+            // Core state
+            status: 'idle',
 
-        const mesh = new THREE.Mesh(geometry, material);
-        mesh.position.set(position[0], position[1], 0);
+            // Position states
+            basePosition: new THREE.Vector3(...position),
+            targetPosition: new THREE.Vector3(...position),
+            dragOffset: new THREE.Vector3(),
 
-        return {
-            mesh,
-            material,
-            type: 'card',
-            needsTimeUpdate: true,
-            state: {
-                // Core state
-                currentState: 'IDLE',
-                lastIntersection: null,
+            // Scale states
+            baseScale: 1,
+            currentScale: 1,
+            targetScale: 1,
 
-                // Animation states
-                transitionStartTime: 0,
-                isTransitioning: false,
-                transitionDuration: 0.15,
-
-                // Scale states
-                baseScale: 1.0,
-                hoverScale: 1.05,
-                currentScale: 1.0,
-
-                // Tilt states
-                tiltAmount: 0.15,
-                currentTilt: new THREE.Vector3(0, 0, 1),
-                targetTilt: new THREE.Vector3(0, 0, 1),
-
-                // Drag states
-                isDragging: false,
-                dragStartPosition: new THREE.Vector3(),
-                dragOffset: new THREE.Vector3(),
-
-                // Animation tracking
-                lastUpdateTime: 0,
-                animations: new Map()
-            }
+            // Animation states
+            tiltAmount: 0.15,
+            currentTilt: new THREE.Vector3(0, 0, 1),
+            targetTilt: new THREE.Vector3(0, 0, 1),
+            
+            // Timing
+            lastUpdateTime: 0,
+            transitionStartTime: 0,
+            transitionDuration: 0.15,
         };
+
+        // Return minimal card object
+        return { mesh, state };
     }
 
-    static update(sceneEngine, entity, intersectionData, time) {
-        const { mesh, material, state } = entity;
+    static update(card, data) {
+        const { mesh, state } = card;
+        const { time, input, intersection, isIntersected, camera } = data;
+        
+        console.log('Card Update Received:', {
+            hasIntersection: !!intersection,
+            isIntersected,
+            inputData: {
+                position: input.position,
+                isPressed: input.isPressed,
+                isDragging: input.isDragging
+            }
+        });
+
+        // Calculate delta time
         const deltaTime = (time - state.lastUpdateTime) / 1000;
         state.lastUpdateTime = time;
 
-        // Update state based on intersection
-        this.updateState(entity, intersectionData);
+        // Update state based on input
+        this.updateCardState(card, data);
         
-        // Process state-specific behaviors
-        switch (state.currentState) {
-            case 'IDLE':
-                this.processIdleState(entity, deltaTime);
+        // Process state-specific behavior
+        switch (state.status) {
+            case 'idle':
+                this.processIdleState(card, deltaTime);
                 break;
             
-            case 'HOVER':
-                this.processHoverState(entity, intersectionData, deltaTime);
+            case 'hover':
+                this.processHoverState(card, data, deltaTime);
                 break;
             
-            case 'DRAGGING':
-                this.processDragState(entity, intersectionData, deltaTime);
+            case 'drag':
+                this.processDragState(card, data, deltaTime);
+                break;
+                
+            case 'drop':
+                this.processDropState(card, deltaTime);
                 break;
         }
 
-        // Update material uniforms
-        if (material.uniforms) {
-            material.uniforms.time.value = time;
-            material.uniforms.hover.value = (state.currentState === 'HOVER' || state.currentState === 'DRAGGING') ? 1.0 : 0.0;
-            material.uniforms.selected.value = state.currentState === 'DRAGGING' ? 1.0 : 0.0;
-            material.uniforms.tiltNormal.value.copy(state.currentTilt);
+        // Update material uniforms if they exist
+        if (mesh.material?.uniforms) {
+            this.updateUniforms(card, data);
         }
 
-        // Process any active animations
-        this.processAnimations(entity, deltaTime);
-
-        return mesh;
+        // Process animations
+        this.processAnimations(card, deltaTime);
     }
 
-    static updateState(entity, intersectionData) {
-        const { state } = entity;
-        const wasIntersecting = !!state.lastIntersection;
-        const isIntersecting = !!intersectionData;
-
-        // State transition logic
-        switch (state.currentState) {
-            case 'IDLE':
-                if (isIntersecting) {
-                    this.transitionToState(entity, 'HOVER');
-                }
-                break;
-
-            case 'HOVER':
-                if (!isIntersecting) {
-                    this.transitionToState(entity, 'IDLE');
-                } else if (intersectionData.isDragging) {
-                    this.transitionToState(entity, 'DRAGGING');
-                }
-                break;
-
-            case 'DRAGGING':
-                if (!intersectionData.isDragging) {
-                    this.transitionToState(entity, isIntersecting ? 'HOVER' : 'IDLE');
-                }
-                break;
-        }
-
-        state.lastIntersection = intersectionData;
-    }
-
-    static transitionToState(entity, newState) {
-        const { state } = entity;
-        const oldState = state.currentState;
+    static updateCardState(card, data) {
+        const { state } = card;
+        const { input, isIntersected } = data;
+        const prevStatus = state.status;
         
-        // Exit current state
-        switch (oldState) {
-            case 'DRAGGING':
-                state.isDragging = false;
+        console.log('Card Update:', {
+            status: state.status,
+            isIntersected,
+            isPressed: input.isPressed,
+            dragStatus: input.isDragging
+        });
+
+        // Determine new state
+        let newStatus = prevStatus;
+
+        switch (prevStatus) {
+            case 'idle':
+                if (isIntersected) {
+                    newStatus = input.isPressed ? 'drag' : 'hover';
+                }
+                break;
+
+            case 'hover':
+                if (!isIntersected) {
+                    newStatus = 'idle';
+                } else if (input.isPressed) {
+                    newStatus = 'drag';
+                }
+                break;
+
+            case 'drag':
+                if (!input.isPressed) {
+                    newStatus = isIntersected ? 'hover' : 'drop';
+                }
+                break;
+
+            case 'drop':
+                if (this.hasReachedTarget(card)) {
+                    newStatus = isIntersected ? 'hover' : 'idle';
+                }
                 break;
         }
 
-        // Enter new state
-        switch (newState) {
-            case 'HOVER':
-                this.addAnimation(entity, 'scale', {
-                    start: state.currentScale,
-                    target: state.hoverScale,
-                    duration: state.transitionDuration
-                });
-                break;
-
-            case 'IDLE':
-                this.addAnimation(entity, 'scale', {
-                    start: state.currentScale,
-                    target: state.baseScale,
-                    duration: state.transitionDuration
-                });
-                break;
-
-            case 'DRAGGING':
-                state.isDragging = true;
-                state.dragStartPosition.copy(entity.mesh.position);
-                break;
+        // Handle state transition if needed
+        if (newStatus !== prevStatus) {
+            this.transitionToState(card, newStatus, data);
         }
-
-        state.currentState = newState;
     }
 
-    static processIdleState(entity, deltaTime) {
-        const { state } = entity;
+    static transitionToState(card, newStatus, data) {
+        const { state } = card;
+        const { input, time } = data;
+
+        console.log('State Transition:', {
+            from: state.status,
+            to: newStatus,
+            time,
+            inputState: {
+                isPressed: input.isPressed,
+                isDragging: input.isDragging
+            }
+        });
+
+        state.status = newStatus;
+        state.transitionStartTime = time;
+
+        switch (newStatus) {
+            case 'idle':
+                state.targetScale = state.baseScale;
+                state.targetTilt.set(0, 0, 1);
+                break;
+
+            case 'hover':
+                state.targetScale = state.baseScale * 1.1;
+                console.log('hover')
+                break;
+
+            case 'drag':
+                state.targetScale = state.baseScale * 1.15;
+                // Store drag offset from object center
+                if (input.isPressed) {
+                    this.calculateDragOffset(card, data);
+                }
+                break;
+
+            case 'drop':
+                state.targetPosition.copy(state.basePosition);
+                state.targetScale = state.baseScale;
+                state.targetTilt.set(0, 0, 1);
+                break;
+        }
+    }
+
+    static calculateDragOffset(card, data) {
+        const { mesh, state } = card;
+        const { intersection } = data;
         
-        // Reset tilt gradually
-        state.targetTilt.set(0, 0, 1);
-        this.updateTilt(entity, deltaTime);
+        if (intersection) {
+            state.dragOffset.copy(mesh.position)
+                .sub(intersection.point);
+        }
     }
 
-    static processHoverState(entity, intersectionData, deltaTime) {
-        if (!intersectionData) return;
-
-        const { state } = entity;
-        const { point } = intersectionData;
-
-        // Calculate tilt based on intersection point
-        this.calculateTilt(entity, point);
-        this.updateTilt(entity, deltaTime);
+    static processIdleState(card, deltaTime) {
+        // Smooth return to rest position and rotation
+        this.updatePosition(card, deltaTime);
+        this.updateTilt(card, deltaTime);
     }
 
-    static processDragState(entity, intersectionData, deltaTime) {
-        if (!intersectionData) return;
-
-        const { mesh, state } = entity;
-        const { point } = intersectionData;
-
-        // Update position
-        mesh.position.copy(point).add(state.dragOffset);
-
-        // Maintain hover tilt
-        this.calculateTilt(entity, point);
-        this.updateTilt(entity, deltaTime);
+    static processHoverState(card, data, deltaTime) {
+        const { intersection } = data;
+        
+        if (intersection) {
+            // Calculate tilt based on intersection point
+            this.calculateTilt(card, intersection.point);
+        }
+        
+        this.updateTilt(card, deltaTime);
     }
 
-    static calculateTilt(entity, point) {
-        const { mesh, state } = entity;
+    static processDragState(card, data, deltaTime) {
+        const { input, camera } = data;
+        const { mesh, state } = card;
+        
+        console.log('Drag Processing:', {
+            inputPosition: input.position,
+            dragDelta: input.dragDelta,
+            currentPosition: mesh.position.toArray()
+        });
+
+        // Convert screen position to world position
+        const worldPos = new THREE.Vector3(
+            input.position.x, 
+            input.position.y, 
+            0
+        ).unproject(camera);
+
+        // Update position with drag offset
+        mesh.position.copy(worldPos).add(state.dragOffset);
+
+        // Update tilt based on movement
+        const dragDelta = new THREE.Vector2(input.dragDelta.x, -input.dragDelta.y);
+        this.calculateDragTilt(card, dragDelta);
+        this.updateTilt(card, deltaTime);
+    }
+
+    static processDropState(card, deltaTime) {
+        // Smooth return to base position
+        this.updatePosition(card, deltaTime);
+        this.updateTilt(card, deltaTime);
+    }
+
+    static calculateTilt(card, point) {
+        const { mesh, state } = card;
         const localPoint = point.clone().sub(mesh.position);
         
-        // Calculate tilt direction
         const tiltX = -localPoint.x * state.tiltAmount;
         const tiltY = -localPoint.y * state.tiltAmount;
         
         state.targetTilt.set(tiltX, tiltY, 1).normalize();
     }
 
-    static updateTilt(entity, deltaTime) {
-        const { state } = entity;
+    static calculateDragTilt(card, dragDelta) {
+        const { state } = card;
+        const tiltX = dragDelta.x * state.tiltAmount * 0.1;
+        const tiltY = dragDelta.y * state.tiltAmount * 0.1;
+        
+        state.targetTilt.set(tiltX, tiltY, 1).normalize();
+    }
+
+    static updatePosition(card, deltaTime) {
+        const { mesh, state } = card;
+        const lerpFactor = 1 - Math.pow(0.001, deltaTime);
+        
+        mesh.position.lerp(state.targetPosition, lerpFactor);
+    }
+
+    static updateTilt(card, deltaTime) {
+        const { state } = card;
         const lerpFactor = 1 - Math.pow(0.001, deltaTime);
         
         state.currentTilt.lerp(state.targetTilt, lerpFactor);
     }
 
-    static addAnimation(entity, name, { start, target, duration }) {
-        entity.state.animations.set(name, {
-            startValue: start,
-            targetValue: target,
-            duration,
-            elapsed: 0
-        });
+    static updateUniforms(card, data) {
+        const { mesh, state } = card;
+        const { time, input } = data;
+
+        const uniforms = mesh.material.uniforms;
+        if (uniforms.time) uniforms.time.value = time;
+        if (uniforms.hover) uniforms.hover.value = state.status !== 'idle' ? 1.0 : 0.0;
+        if (uniforms.selected) uniforms.selected.value = state.status === 'drag' ? 1.0 : 0.0;
+        if (uniforms.tiltNormal) uniforms.tiltNormal.value.copy(state.currentTilt);
     }
 
-    static processAnimations(entity, deltaTime) {
-        const { state } = entity;
+    static processAnimations(card, deltaTime) {
+        const { mesh, state } = card;
+        
+        // Scale animation
+        const scaleLerpFactor = 1 - Math.pow(0.001, deltaTime);
+        state.currentScale = THREE.MathUtils.lerp(
+            state.currentScale,
+            state.targetScale,
+            scaleLerpFactor
+        );
+        mesh.scale.setScalar(state.currentScale);
+    }
 
-        state.animations.forEach((anim, name) => {
-            anim.elapsed += deltaTime;
-            const progress = Math.min(anim.elapsed / anim.duration, 1);
-            
-            switch (name) {
-                case 'scale':
-                    state.currentScale = THREE.MathUtils.lerp(
-                        anim.startValue,
-                        anim.targetValue,
-                        progress
-                    );
-                    entity.mesh.scale.setScalar(state.currentScale);
-                    break;
-            }
-
-            if (progress >= 1) {
-                state.animations.delete(name);
-            }
-        });
+    static hasReachedTarget(card) {
+        const { mesh, state } = card;
+        const threshold = 0.001;
+        
+        return mesh.position.distanceTo(state.targetPosition) < threshold;
     }
 }
