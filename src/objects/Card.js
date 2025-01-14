@@ -53,48 +53,47 @@ export class Card {
     }
 
     static update(sceneEngine, entity, mouse) {
-        // Verify we have all required properties
-        console.log('Debug uniforms:', entity.material.uniforms); // See what uniforms we actually have
-        if (!entity || !entity.mesh || !entity.material || !entity.material.uniforms) {
-            return;
-        }
-
         const { mesh, material, state } = entity;
-
-        // Verify all uniforms exist before updating
-        const uniforms = material.uniforms;
-        if (!uniforms.normal || !uniforms.normal.value) {
-            console.error('Missing normal uniform in card material');
-            return;
-        }
-
-        // Convert mouse to world position for normal calculation
+        
+        // Convert mouse to world space
         const worldMouse = new THREE.Vector3(
             mouse.x, 
             mouse.y, 
-            0
+            0.5  // Place cursor in front of the card
         ).unproject(sceneEngine.camera);
-
-        // Calculate direction to cursor
-        const dirToCursor = new THREE.Vector3()
-            .subVectors(worldMouse, mesh.position)
-            .normalize();
-            
-        // Update target normal with limited tilt
-        state.targetNormal.copy(state.baseNormal)
-            .lerp(dirToCursor, 0.3);
-            
-        // Limit maximum tilt angle
-        const angle = state.baseNormal.angleTo(state.targetNormal);
-        if (angle > state.maxTiltAngle) {
-            state.targetNormal.lerp(state.baseNormal, 
-                1 - (state.maxTiltAngle / angle));
-        }
-
-        // Smooth normal interpolation
-        state.currentNormal.lerp(state.targetNormal, state.tiltSpeed);
         
-        // Update shader uniform
-        uniforms.normal.value.copy(state.currentNormal);
+        // Get card position
+        const cardPos = mesh.position.clone();
+        
+        // Calculate tilt direction
+        const tiltDir = new THREE.Vector3()
+            .subVectors(worldMouse, cardPos)
+            .normalize();
+        
+        // Start with base normal (pointing at camera)
+        const newNormal = new THREE.Vector3(0, 0, 1);
+        
+        // Calculate tilt based on mouse position relative to card
+        newNormal.x = -(worldMouse.x - cardPos.x) * 0.5;  // Tilt left/right
+        newNormal.y = -(worldMouse.y - cardPos.y) * 0.5;  // Tilt up/down
+        newNormal.z = 1;  // Keep some forward direction
+        newNormal.normalize();  // Ensure it's a unit vector
+        
+        // Update the normal uniform
+        material.uniforms.tiltNormal.value.copy(newNormal);
+        
+        // Log for debugging
+        if (sceneEngine.interactionManager.isDragging) {
+            console.log('Mouse World Pos:', 
+                'x:', worldMouse.x.toFixed(3),
+                'y:', worldMouse.y.toFixed(3),
+                'z:', worldMouse.z.toFixed(3)
+            );
+            console.log('New Normal:', 
+                'x:', newNormal.x.toFixed(3),
+                'y:', newNormal.y.toFixed(3),
+                'z:', newNormal.z.toFixed(3)
+            );
+        }
     }
 }

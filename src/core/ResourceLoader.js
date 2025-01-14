@@ -93,14 +93,13 @@ export class ResourceLoader {
     }
 
     getDefaultUniforms(materialName) {
-        // Define default uniforms for each material type
         const defaults = {
             'card': {
                 uniforms: {
                     time: { type: 'f', value: 0.0 },
                     hover: { type: 'f', value: 0.0 },
                     selected: { type: 'f', value: 0.0 },
-                    normal: { type: 'v3', value: new THREE.Vector3(0, 0, 1) },
+                    tiltNormal: { type: 'v3', value: new THREE.Vector3(0, 0, 1) },  // renamed from 'normal'
                     highlightColor: { type: 'v3', value: new THREE.Vector3(1.0, 0.8, 0.2) }
                 }
             }
