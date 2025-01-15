@@ -29,6 +29,7 @@ export class SceneEngine {
             layer.group.position.z = layer.zIndex * 0.1;
             this.scene.add(layer.group);
         });
+        this.draggedObject = null;
     }
 
     initialize(domElement) {
@@ -126,30 +127,47 @@ export class SceneEngine {
     }
 
     update(time) {
-        // Get current input state
         const inputData = this.inputManager.getInputData();
-        
-        // Find currently intersected object
         const intersectionResult = this.findIntersectingObject(inputData.position);
         
-        // Build interaction data package for objects
-        const interactionData = {
-            time,
-            input: inputData,
-            intersection: intersectionResult?.intersection || null,
-            camera: this.camera
-        };
+        // If something is being dragged, only update that
+        if (this.draggedObject) {
+            if (!inputData.isPressed) {
+                // Move back to original layer when drag ends
+                const layerData = this.layers.get('cards');  // Assuming it's a card
+                layerData.group.add(this.draggedObject.mesh);
+                this.draggedObject = null;
+            } else {
+                this.draggedObject.config.onUpdate({
+                    time,
+                    input: inputData,
+                    intersection: intersectionResult?.intersection || null,
+                    camera: this.camera,
+                    isIntersected: true
+                });
+                return;
+            }
+        }
 
-        // Update all interactive objects
+        // Normal update for all objects when nothing is being dragged
         this.interactiveObjects.forEach((obj) => {
-            // Check if this is the intersected object
             const isIntersected = intersectionResult?.interactiveData === obj;
-            
-            // Let the object handle its own update
             if (obj.config.onUpdate) {
                 obj.config.onUpdate({
-                    ...interactionData,
-                    isIntersected
+                    time,
+                    input: inputData,
+                    intersection: intersectionResult?.intersection || null,
+                    camera: this.camera,
+                    isIntersected,
+                    onDragStart: (card) => {
+                        this.draggedObject = obj;
+                        // Move to overlay layer when drag starts
+                        const overlayLayer = this.layers.get('overlay');
+                        overlayLayer.group.add(obj.mesh);
+                        console.log('moved to top')
+                        console.log(overlayLayer.zIndex)
+                        console.log(this.layers)
+                    }
                 });
             }
         });

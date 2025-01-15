@@ -37,12 +37,19 @@ export class Card {
         const { mesh, state } = card;
         const { time, input, intersection, isIntersected } = data;
 
+        // When drag starts, notify the SceneEngine
+        if (isIntersected && input.isPressed && !state.isDragging) {
+            data.onDragStart?.(card); // Simple callback
+        }
+
+        state.isDragging = state.isDragging ? input.isPressed : (isIntersected && input.isPressed);
+        // ... rest of update logic ...
+
         // Update interaction state
         const wasHovered = state.isHovered;
         const wasDragging = state.isDragging;
         
         state.isHovered = isIntersected;
-        state.isDragging = state.isDragging ? input.isPressed : (isIntersected && input.isPressed);
 
         // Handle drag start
         if (state.isDragging && !wasDragging) {
@@ -86,15 +93,6 @@ export class Card {
             // Convert tilt vector to rotation
             mesh.rotation.x = Math.asin(state.tilt.y);  // Tilt forward/backward
             mesh.rotation.y = -Math.asin(state.tilt.x); // Tilt left/right
-            
-            if (state.debug) {
-                console.log('Drag tilt:', {
-                    dragSpeed,
-                    tiltAmount: tiltAmount * (180 / Math.PI), // Convert to degrees
-                    normal: state.tilt.toArray(),
-                    rotation: [mesh.rotation.x * (180 / Math.PI), mesh.rotation.y * (180 / Math.PI)]
-                });
-            }
 
         } else if (state.isHovered && intersection) {
             // Return to base position when not dragging
@@ -123,15 +121,6 @@ export class Card {
             // Convert tilt vector to rotation
             mesh.rotation.x = Math.asin(state.tilt.y);  // Tilt forward/backward
             mesh.rotation.y = -Math.asin(state.tilt.x); // Tilt left/right
-            
-            if (state.debug) {
-                console.log('Hover tilt:', {
-                    distance: distanceToMouse,
-                    tiltAmount: tiltAmount * (180 / Math.PI), // Convert to degrees
-                    normal: state.tilt.toArray(),
-                    rotation: [mesh.rotation.x * (180 / Math.PI), mesh.rotation.y * (180 / Math.PI)]
-                });
-            }
 
         } else {
             // Return to default state
