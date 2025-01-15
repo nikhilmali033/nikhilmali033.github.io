@@ -18,15 +18,16 @@ export class SceneEngine {
         // Layer management (simplified for clarity)
         this.layers = new Map([
             ['background', { zIndex: 0, group: new THREE.Group() }],
-            ['cards', { zIndex: 1, group: new THREE.Group() }],
-            ['ui', { zIndex: 2, group: new THREE.Group() }],
-            ['effects', { zIndex: 3, group: new THREE.Group() }],
-            ['overlay', { zIndex: 4, group: new THREE.Group() }]
+            ['cards', { zIndex: 10, group: new THREE.Group() }],
+            ['ui', { zIndex: 20, group: new THREE.Group() }],
+            ['effects', { zIndex: 30, group: new THREE.Group() }],
+            ['overlay', { zIndex: 40, group: new THREE.Group() }]
         ]);
         
-        // Initialize layers
+        // Initialize layers with larger z-separation
         this.layers.forEach((layer) => {
-            layer.group.position.z = layer.zIndex * 0.1;
+            layer.group.position.z = layer.zIndex;  // Remove the 0.1 multiplication
+            layer.group.renderOrder = layer.zIndex; // Add explicit render order
             this.scene.add(layer.group);
         });
         this.draggedObject = null;
@@ -40,9 +41,9 @@ export class SceneEngine {
     setupCamera() {
         const aspect = window.innerWidth / window.innerHeight;
         this.camera = new THREE.OrthographicCamera(
-            -aspect, aspect, 1, -1, 0.1, 1000
+            -aspect, aspect, 1, -1, 1, 100  // Tighter near/far range
         );
-        this.camera.position.z = 1;
+        this.camera.position.z = 50;  // Position camera in middle of range
     }
 
     registerInteractiveObject(mesh, config) {
@@ -161,12 +162,20 @@ export class SceneEngine {
                     isIntersected,
                     onDragStart: (card) => {
                         this.draggedObject = obj;
-                        // Move to overlay layer when drag starts
                         const overlayLayer = this.layers.get('overlay');
+                        
+                        // Store original world position
+                        const worldPosition = new THREE.Vector3();
+                        obj.mesh.getWorldPosition(worldPosition);
+                        
+                        // Move to overlay layer
                         overlayLayer.group.add(obj.mesh);
-                        console.log('moved to top')
-                        console.log(overlayLayer.zIndex)
-                        console.log(this.layers)
+                        
+                        // Restore world position
+                        obj.mesh.position.copy(worldPosition);
+                        
+                        // Set higher render order for the dragged mesh
+                        obj.mesh.renderOrder = overlayLayer.group.renderOrder + 1;
                     }
                 });
             }
