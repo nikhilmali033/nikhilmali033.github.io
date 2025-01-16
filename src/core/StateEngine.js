@@ -6,35 +6,37 @@ import { Card } from '../objects/Card';
 
 export class StateEngine {
     constructor(container) {
-        // Core systems
+        // Initialize core systems in the right order
         this.resourceLoader = new ResourceLoader();
-        this.sceneEngine = new SceneEngine(this.resourceLoader);
         this.renderManager = new RenderManager();
         
-        // State tracking
+        // SceneEngine only needs resourceLoader for initialization
+        this.sceneEngine = new SceneEngine(this.resourceLoader);
+        
+        this.container = container;
+        
+        // Track all game entities
         this.entities = new Map();
+        
+        // Game state
         this.gameState = {
             isInitialized: false,
             isPaused: false,
             currentTime: 0,
             lastUpdateTime: 0
         };
-        
-        this.container = container;
     }
 
     async initialize() {
         try {
-            // Load resources first
+            // First load all resources
             await this.resourceLoader.loadShaders();
             
-            // Initialize scene and renderer
-            this.sceneEngine.initialize(this.renderManager.domElement);
+            // Then initialize render systems
             this.renderManager.initialize(this.container);
+            this.sceneEngine.initialize(this.renderManager.domElement);
             
-            // Mark as initialized
             this.gameState.isInitialized = true;
-            
             return true;
         } catch (error) {
             console.error('Initialization failed:', error);
@@ -47,24 +49,20 @@ export class StateEngine {
 
         switch (type) {
             case 'card': {
-                // Create base entity through Card class
-                entity = Card.create(config);
+                // Create card with resourceLoader
+                entity = Card.create(this.resourceLoader, config);
                 
-                // Let SceneEngine handle the setup in scene
-                const sceneObject = this.sceneEngine.createObject(type, {
-                    ...config,
-                    entity,
-                    onUpdate: (data) => Card.update(entity, data)
+                // Add to scene management
+                const sceneObject = this.sceneEngine.addObject(entity, {
+                    layer: config.layer || 'cards',
+                    interactionConfig: {
+                        // Any card-specific interaction config
+                    }
                 });
                 
-                // Store complete entity data
                 if (sceneObject) {
-                    entity.id = sceneObject.id;
-                    entity.mesh = sceneObject.mesh;
-                    entity.material = sceneObject.material;
-                    
-                    // Track entity
-                    this.entities.set(entity.id, {
+                    // Track in our entity system
+                    this.entities.set(entity.mesh.uuid, {
                         type,
                         entity,
                         config
@@ -85,10 +83,13 @@ export class StateEngine {
         const entityData = this.entities.get(id);
         if (!entityData) return false;
 
-        // Let SceneEngine clean up scene objects
-        this.sceneEngine.removeObject(entityData.entity.mesh);
+        // Remove from scene
+        this.sceneEngine.removeObject(entityData.entity);
         
-        // Clean up our tracking
+        // Cleanup entity resources
+        entityData.entity.dispose();
+        
+        // Remove from tracking
         this.entities.delete(id);
         
         return true;
@@ -102,7 +103,7 @@ export class StateEngine {
         const deltaTime = time - this.gameState.lastUpdateTime;
         this.gameState.lastUpdateTime = time;
 
-        // Update scene (handles input and physics)
+        // Update scene
         this.sceneEngine.update(time);
 
         // Render
@@ -111,54 +112,37 @@ export class StateEngine {
         this.renderManager.render(scene, camera);
     }
 
-    // Game state methods
-    pause() {
-        this.gameState.isPaused = true;
-    }
-
-    resume() {
-        this.gameState.isPaused = false;
-        this.gameState.lastUpdateTime = performance.now();
-    }
-
     createGameObjects() {
-        // Configuration for initial game setup
-        const config = {
-            cards: {
-                mainCard: {
-                    position: [0, 0, 0],
-                    width: 1,
-                    height: 1.4,
-                    layer: 'cards'
-                },
-                surroundingCards: [
-                    {
-                        position: [-1.5, 1, 0],
-                        width: 1,
-                        height: 1.4,
-                        layer: 'cards'
-                    },
-                    {
-                        position: [1.5, 1, 0],
-                        width: 1,
-                        height: 1.4,
-                        layer: 'cards'
-                    },
-                    {
-                        position: [0, -1.5, 0],
-                        width: 1,
-                        height: 1.4,
-                        layer: 'cards'
-                    }
-                ]
-            }
-            // Add other object configurations as needed:
-            // background: {...},
-            // effects: {...},
-            // ui: {...}
-        };
-
         try {
+            // Example configuration for initial game setup
+            const config = {
+                cards: {
+                    mainCard: {
+                        position: [0, 0, 0],
+                        width: 1,
+                        height: 1.4,
+                        layer: 'cards',
+                        shaderName: 'card' // Specify which shader to use
+                    },
+                    surroundingCards: [
+                        {
+                            position: [-1.5, 1, 0],
+                            width: 1,
+                            height: 1.4,
+                            layer: 'cards',
+                            shaderName: 'card'
+                        },
+                        {
+                            position: [1.5, 1, 0],
+                            width: 1,
+                            height: 1.4,
+                            layer: 'cards',
+                            shaderName: 'card'
+                        }
+                    ]
+                }
+            };
+
             // Create main card
             const mainCard = this.createEntity('card', config.cards.mainCard);
             if (!mainCard) throw new Error('Failed to create main card');
@@ -170,18 +154,24 @@ export class StateEngine {
                 return card;
             });
 
-            // Track created objects in game state if needed
+            // Store references if needed
             this.gameState.mainCard = mainCard;
             this.gameState.surroundingCards = surroundingCards;
 
-            // Future: Add other game object creation here
-            // this.createBackgroundEffects(config.background);
-            // this.createUIElements(config.ui);
-            
             return true;
         } catch (error) {
             console.error('Error creating game objects:', error);
             return false;
         }
+    }
+
+    // Game state methods
+    pause() {
+        this.gameState.isPaused = true;
+    }
+
+    resume() {
+        this.gameState.isPaused = false;
+        this.gameState.lastUpdateTime = performance.now();
     }
 }

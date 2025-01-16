@@ -14,8 +14,9 @@ export class SceneEngine {
         // Interaction setup
         this.raycaster = new THREE.Raycaster();
         this.interactiveObjects = new Map();
+        this.draggedObject = null;
         
-        // Layer management (simplified for clarity)
+        // Layer management
         this.layers = new Map([
             ['background', { zIndex: 0, group: new THREE.Group() }],
             ['cards', { zIndex: 10, group: new THREE.Group() }],
@@ -24,13 +25,12 @@ export class SceneEngine {
             ['overlay', { zIndex: 40, group: new THREE.Group() }]
         ]);
         
-        // Initialize layers with larger z-separation
+        // Initialize layers
         this.layers.forEach((layer) => {
-            layer.group.position.z = layer.zIndex;  // Remove the 0.1 multiplication
-            layer.group.renderOrder = layer.zIndex; // Add explicit render order
+            layer.group.position.z = layer.zIndex;
+            layer.group.renderOrder = layer.zIndex;
             this.scene.add(layer.group);
         });
-        this.draggedObject = null;
     }
 
     initialize(domElement) {
@@ -41,14 +41,52 @@ export class SceneEngine {
     setupCamera() {
         const aspect = window.innerWidth / window.innerHeight;
         this.camera = new THREE.OrthographicCamera(
-            -aspect, aspect, 1, -1, 1, 100  // Tighter near/far range
+            -aspect, aspect, 1, -1, 1, 100
         );
-        this.camera.position.z = 50;  // Position camera in middle of range
+        this.camera.position.z = 50;
     }
 
-    registerInteractiveObject(mesh, config) {
-        this.interactiveObjects.set(mesh.uuid, {
-            mesh,
+    // Add object to scene and set up for interaction
+    addObject(object, config) {
+        const { layer = 'cards', interactionConfig = {} } = config;
+        
+        // Validate object has required properties
+        if (!object.mesh || !object.update) {
+            console.error('Invalid object: must have mesh and update method');
+            return null;
+        }
+
+        // Add to appropriate layer
+        const layerData = this.layers.get(layer);
+        if (!layerData) {
+            console.error(`Invalid layer: ${layer}`);
+            return null;
+        }
+        
+        layerData.group.add(object.mesh);
+
+        // Register for interactions
+        this.registerInteractiveObject(object, interactionConfig);
+
+        return object;
+    }
+
+    // Remove object from scene and interaction registry
+    removeObject(object) {
+        if (!object.mesh) return false;
+
+        // Remove from layer
+        object.mesh.parent?.remove(object.mesh);
+        
+        // Unregister from interactions
+        this.unregisterInteractiveObject(object);
+
+        return true;
+    }
+
+    registerInteractiveObject(object, config) {
+        this.interactiveObjects.set(object.mesh.uuid, {
+            object,
             config,
             state: {
                 isHovered: false,
@@ -58,131 +96,102 @@ export class SceneEngine {
         });
     }
 
-    unregisterInteractiveObject(mesh) {
-        this.interactiveObjects.delete(mesh.uuid);
+    unregisterInteractiveObject(object) {
+        this.interactiveObjects.delete(object.mesh.uuid);
     }
 
     findIntersectingObject(position) {
-        // Update raycaster with normalized device coordinates
         this.raycaster.setFromCamera(
             new THREE.Vector2(position.x, position.y),
             this.camera
         );
         
-        // Get all interactive meshes
         const meshes = Array.from(this.interactiveObjects.values())
-            .map(obj => obj.mesh);
+            .map(data => data.object.mesh);
         
-        // Find intersections
         const intersects = this.raycaster.intersectObjects(meshes, false);
         
         if (intersects.length === 0) return null;
         
-        // Return both intersection data and our stored interactive object data
         const intersection = intersects[0];
         const interactiveData = this.interactiveObjects.get(intersection.object.uuid);
         
-        return {
-            intersection,
-            interactiveData
-        };
-    }
-
-    createObject(type, config) {
-        switch (type) {
-            case 'card':
-                return this.createCard(config);
-            // Add other object types as needed
-            default:
-                console.error(`Unknown object type: ${type}`);
-                return null;
-        }
-    }
-
-    createCard(config) {
-        const { position, width = 1, height = 1.4, layer = 'cards' } = config;
-        
-        // Card creation is now minimal - just basic setup
-        const geometry = new THREE.PlaneGeometry(width, height);
-        const material = this.resourceLoader.createMaterial('card');
-        const mesh = new THREE.Mesh(geometry, material);
-        
-        // Basic positioning
-        mesh.position.set(position[0], position[1], 0);
-        
-        // Add to appropriate layer
-        const layerData = this.layers.get(layer);
-        layerData.group.add(mesh);
-        
-        // Register for interactions with basic config
-        this.registerInteractiveObject(mesh, {
-            type: 'card',
-            ...config
-        });
-        
-        return {
-            id: mesh.uuid,
-            mesh,
-            material
-        };
+        return { intersection, interactiveData };
     }
 
     update(time) {
         const inputData = this.inputManager.getInputData();
         const intersectionResult = this.findIntersectingObject(inputData.position);
         
-        // If something is being dragged, only update that
+        // Handle dragged object
         if (this.draggedObject) {
             if (!inputData.isPressed) {
-                // Move back to original layer when drag ends
-                const layerData = this.layers.get('cards');  // Assuming it's a card
-                layerData.group.add(this.draggedObject.mesh);
+                // Return to original layer
+                const originalLayer = this.layers.get(this.draggedObject.originalLayer);
+                originalLayer.group.add(this.draggedObject.object.mesh);
                 this.draggedObject = null;
             } else {
-                this.draggedObject.config.onUpdate({
+                // Update dragged object
+                this.updateObject(this.draggedObject.object, {
                     time,
                     input: inputData,
                     intersection: intersectionResult?.intersection || null,
-                    camera: this.camera,
                     isIntersected: true
                 });
                 return;
             }
         }
 
-        // Normal update for all objects when nothing is being dragged
-        this.interactiveObjects.forEach((obj) => {
-            const isIntersected = intersectionResult?.interactiveData === obj;
-            if (obj.config.onUpdate) {
-                obj.config.onUpdate({
-                    time,
-                    input: inputData,
-                    intersection: intersectionResult?.intersection || null,
-                    camera: this.camera,
-                    isIntersected,
-                    onDragStart: (card) => {
-                        this.draggedObject = obj;
-                        const overlayLayer = this.layers.get('overlay');
-                        
-                        // Store original world position
-                        const worldPosition = new THREE.Vector3();
-                        obj.mesh.getWorldPosition(worldPosition);
-                        
-                        // Move to overlay layer
-                        overlayLayer.group.add(obj.mesh);
-                        
-                        // Restore world position
-                        obj.mesh.position.copy(worldPosition);
-                        
-                        // Set higher render order for the dragged mesh
-                        obj.mesh.renderOrder = overlayLayer.group.renderOrder + 1;
-                    }
-                });
-            }
+        // Update all objects
+        this.interactiveObjects.forEach(({ object, config }) => {
+            const isIntersected = intersectionResult?.interactiveData?.object === object;
+            this.updateObject(object, {
+                time,
+                input: inputData,
+                intersection: intersectionResult?.intersection || null,
+                isIntersected,
+                onDragStart: () => this.handleDragStart(object, config)
+            });
         });
+    }
+
+    updateObject(object, updateData) {
+        updateData.camera = this.camera; // Add camera reference
+        object.update(updateData);
+    }
+
+    handleDragStart(object, config) {
+        // Store original layer by finding which layer contains the mesh
+        let originalLayer = 'cards'; // default fallback
+        for (const [layerName, layerData] of this.layers.entries()) {
+            if (layerData.group.children.includes(object.mesh)) {
+                originalLayer = layerName;
+                break;
+            }
+        }
+
+        // Move to overlay layer
+        const overlayLayer = this.layers.get('overlay');
+        const worldPosition = new THREE.Vector3();
+        object.mesh.getWorldPosition(worldPosition);
+        
+        overlayLayer.group.add(object.mesh);
+        object.mesh.position.copy(worldPosition);
+        object.mesh.renderOrder = overlayLayer.group.renderOrder + 1;
+        
+        this.draggedObject = { 
+            object, 
+            config,
+            originalLayer 
+        };
     }
 
     // Utility methods
     getScene() { return this.scene; }
     getCamera() { return this.camera; }
+
+    // Layer management
+    getLayer(name) {
+        return this.layers.get(name)?.group || null;
+    }
 }
