@@ -6,8 +6,12 @@ const cardState = {
     velocity: new THREE.Vector3(),
     rotation: new THREE.Euler(),
     isDragging: false,
+    isHovering: false,
     dragOffset: new THREE.Vector3(),
-    dampingFactor: 0.95  // For smooth deceleration
+    dampingFactor: 0.95,  // For smooth deceleration
+    returnSpeed: 0.1,     // Speed at which card returns to origin
+    targetRotation: new THREE.Euler(),
+    rotationSpeed: 0.1    // Speed of rotation lerping
 };
 
 // Core scene elements
@@ -86,8 +90,12 @@ function onMouseMove(event) {
     mouse.x = (event.clientX / window.innerWidth) * 2 - 1;
     mouse.y = -(event.clientY / window.innerHeight) * 2 + 1;
     
+    // Update hover state and tilt
+    raycaster.setFromCamera(mouse, camera);
+    const intersects = raycaster.intersectObject(card);
+    cardState.isHovering = intersects.length > 0;
+    
     if (cardState.isDragging) {
-        raycaster.setFromCamera(mouse, camera);
         const intersectPlane = new THREE.Plane(new THREE.Vector3(0, 0, 1), 0);
         const intersectPoint = new THREE.Vector3();
         raycaster.ray.intersectPlane(intersectPlane, intersectPoint);
@@ -98,6 +106,18 @@ function onMouseMove(event) {
         // Calculate velocity based on movement
         cardState.velocity.subVectors(card.position, cardState.position);
         cardState.position.copy(card.position);
+    } else if (cardState.isHovering) {
+        // Calculate tilt based on cursor position relative to card center
+        const cardScreenPosition = card.position.clone().project(camera);
+        const tiltX = (mouse.y - cardScreenPosition.y) * 0.5;
+        const tiltY = (mouse.x - cardScreenPosition.x) * 0.5;
+        
+        cardState.targetRotation.x = -tiltX;
+        cardState.targetRotation.y = tiltY;
+    } else {
+        // Reset target rotation when not hovering
+        cardState.targetRotation.x = 0;
+        cardState.targetRotation.y = 0;
     }
 }
 
@@ -113,9 +133,22 @@ function animate() {
         card.position.add(cardState.velocity);
         cardState.velocity.multiplyScalar(cardState.dampingFactor);
         
-        // Optional: Add subtle hovering animation
-        card.rotation.y = Math.sin(Date.now() * 0.001) * 0.1;
+        // Return to origin
+        if (!cardState.isDragging) {
+            card.position.lerp(new THREE.Vector3(0, 0, 0), cardState.returnSpeed);
+        }
+        
+        // Idle animation when not hovering
+        if (!cardState.isHovering) {
+            const time = Date.now() * 0.001;
+            cardState.targetRotation.x = Math.sin(time) * 0.1;
+            cardState.targetRotation.y = Math.cos(time) * 0.1;
+        }
     }
+    
+    // Smooth rotation lerping
+    card.rotation.x += (cardState.targetRotation.x - card.rotation.x) * cardState.rotationSpeed;
+    card.rotation.y += (cardState.targetRotation.y - card.rotation.y) * cardState.rotationSpeed;
     
     renderer.render(scene, camera);
 }
