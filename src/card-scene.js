@@ -37,12 +37,19 @@ function initScene(container) {
     raycaster = new THREE.Raycaster();
     mouse = new THREE.Vector2();
     
-    // Create card
-    const geometry = new THREE.BoxGeometry(2, 3, 0.1);  // Card-like proportions
+    // Load texture
+    const textureLoader = new THREE.TextureLoader();
+    const texture = textureLoader.load('./textures/joker.png');
+    texture.minFilter = THREE.LinearFilter;  // Prevents blurry textures
+    texture.magFilter = THREE.LinearFilter;
+
+    // Create card (nearly flat)
+    const geometry = new THREE.BoxGeometry(2, 3, 0.01);  // Made very thin
     const material = new THREE.MeshPhongMaterial({ 
+        map: texture,
         color: 0xffffff,
-        specular: 0x050505,
-        shininess: 100
+        specular: 0x222222,
+        shininess: 50
     });
     card = new THREE.Mesh(geometry, material);
     scene.add(card);
