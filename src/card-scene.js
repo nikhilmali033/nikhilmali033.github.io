@@ -1,6 +1,5 @@
 import * as THREE from 'three';
 
-// Global state for cards
 const cardState = {
     position: new THREE.Vector3(),
     velocity: new THREE.Vector3(),
@@ -8,15 +7,16 @@ const cardState = {
     isDragging: false,
     isHovering: false,
     dragOffset: new THREE.Vector3(),
-    dampingFactor: 0.95,  // For smooth deceleration
-    returnSpeed: 0.1,     // Speed at which card returns to origin
+    dampingFactor: 0.95,
+    returnSpeed: 0.1,
     targetRotation: new THREE.Euler(),
-    rotationSpeed: 0.1    // Speed of rotation lerping
+    rotationSpeed: 0.1,
+    lastMouseX: 0,
+    pivotOffset: 0.7  // Pivot point above center
 };
 
-// Core scene elements
 let scene, camera, renderer;
-let card;  // The card mesh
+let card, cardPivot;  // cardPivot will be the parent object for rotation
 let raycaster;
 let mouse;
 let animationFrameId;
@@ -24,11 +24,16 @@ let animationFrameId;
 function initScene(container) {
     // Scene setup
     scene = new THREE.Scene();
+    scene.background = new THREE.Color(0x2a1b3d);  // Modest purple
+    
     camera = new THREE.PerspectiveCamera(75, window.innerWidth / window.innerHeight, 0.1, 1000);
     renderer = new THREE.WebGLRenderer({ antialias: true });
     
+    // Setup renderer with shadow support
     renderer.setSize(window.innerWidth, window.innerHeight);
     renderer.setPixelRatio(window.devicePixelRatio);
+    renderer.shadowMap.enabled = true;
+    renderer.shadowMap.type = THREE.PCFSoftShadowMap;
     container.appendChild(renderer.domElement);
     
     camera.position.z = 5;
@@ -40,26 +45,65 @@ function initScene(container) {
     // Load texture
     const textureLoader = new THREE.TextureLoader();
     const texture = textureLoader.load('./textures/joker.png');
-    texture.minFilter = THREE.LinearFilter;  // Prevents blurry textures
+    texture.minFilter = THREE.LinearFilter;
     texture.magFilter = THREE.LinearFilter;
 
-    // Create card (nearly flat)
-    const geometry = new THREE.BoxGeometry(2, 3, 0.01);  // Made very thin
+    // Create pivot point
+    cardPivot = new THREE.Object3D();
+    scene.add(cardPivot);
+    
+    // Create card
+    const geometry = new THREE.PlaneGeometry(2, 3);
     const material = new THREE.MeshPhongMaterial({ 
         map: texture,
-        color: 0xffffff,
-        specular: 0x222222,
-        shininess: 50
+        transparent: true,
+        side: THREE.DoubleSide,
+        shininess: 100,
+        specular: 0x444444,
+        emissive: 0x000000
     });
+    
     card = new THREE.Mesh(geometry, material);
-    scene.add(card);
+    card.castShadow = true;
+    card.receiveShadow = true;
     
-    // Add lighting
-    const light = new THREE.DirectionalLight(0xffffff, 1);
-    light.position.set(5, 5, 5);
-    scene.add(light);
+    // Offset card so pivot point is at y=0.7
+    card.position.y = -cardState.pivotOffset;
+    cardPivot.add(card);
     
-    const ambientLight = new THREE.AmbientLight(0x404040);
+    // Add shadow-catching plane
+    const shadowCatcher = new THREE.Mesh(
+        new THREE.PlaneGeometry(10, 10),
+        new THREE.ShadowMaterial({
+            opacity: 0.3
+        })
+    );
+    shadowCatcher.position.z = -0.3;
+    shadowCatcher.receiveShadow = true;
+    scene.add(shadowCatcher);
+    
+    // Lighting setup
+    const mainLight = new THREE.DirectionalLight(0xffffff, 0.7);
+    mainLight.position.set(5, 5, 5);
+    mainLight.castShadow = true;
+    mainLight.shadow.camera.near = 0.1;
+    mainLight.shadow.camera.far = 100;
+    mainLight.shadow.camera.left = -10;
+    mainLight.shadow.camera.right = 10;
+    mainLight.shadow.camera.top = 10;
+    mainLight.shadow.camera.bottom = -10;
+    mainLight.shadow.mapSize.width = 2048;
+    mainLight.shadow.mapSize.height = 2048;
+    scene.add(mainLight);
+    
+    const glareLight = new THREE.SpotLight(0xffffff, 2);
+    glareLight.position.set(0, 1, 5);
+    glareLight.angle = Math.PI / 4;
+    glareLight.penumbra = 0.1;
+    glareLight.decay = 0.1;
+    scene.add(glareLight);
+    
+    const ambientLight = new THREE.AmbientLight(0x404040, 0.6);
     scene.add(ambientLight);
     
     // Event listeners
@@ -82,20 +126,25 @@ function onMouseDown(event) {
     
     mouse.x = (event.clientX / window.innerWidth) * 2 - 1;
     mouse.y = -(event.clientY / window.innerHeight) * 2 + 1;
+    cardState.lastMouseX = event.clientX;  // Store initial mouse position
     
     raycaster.setFromCamera(mouse, camera);
     const intersects = raycaster.intersectObject(card);
     
     if (intersects.length > 0) {
         cardState.isDragging = true;
-        cardState.velocity.set(0, 0, 0);  // Reset velocity when grabbing
-        cardState.dragOffset.copy(card.position).sub(intersects[0].point);
+        cardState.velocity.set(0, 0, 0);
+        cardState.dragOffset.copy(cardPivot.position).sub(intersects[0].point);
     }
 }
 
 function onMouseMove(event) {
     mouse.x = (event.clientX / window.innerWidth) * 2 - 1;
     mouse.y = -(event.clientY / window.innerHeight) * 2 + 1;
+    
+    // Calculate horizontal mouse velocity
+    const mouseVelocityX = event.clientX - cardState.lastMouseX;
+    cardState.lastMouseX = event.clientX;
     
     // Update hover state and tilt
     raycaster.setFromCamera(mouse, camera);
@@ -108,21 +157,29 @@ function onMouseMove(event) {
         raycaster.ray.intersectPlane(intersectPlane, intersectPoint);
         
         // Update position with drag offset
-        card.position.copy(intersectPoint.add(cardState.dragOffset));
+        cardPivot.position.copy(intersectPoint.add(cardState.dragOffset));
         
         // Calculate velocity based on movement
-        cardState.velocity.subVectors(card.position, cardState.position);
-        cardState.position.copy(card.position);
+        cardState.velocity.subVectors(cardPivot.position, cardState.position);
+        cardState.position.copy(cardPivot.position);
+        
+        // Calculate rotation based on drag velocity
+        // Negative mouseVelocityX creates opposite rotation
+        const rotationAmount = THREE.MathUtils.clamp(
+            -mouseVelocityX * 0.01, // Scale factor for rotation
+            -Math.PI / 4,            // Max negative rotation
+            Math.PI / 4              // Max positive rotation
+        );
+        cardPivot.rotation.z = rotationAmount;
     } else if (cardState.isHovering) {
-        // Calculate tilt based on cursor position relative to card center
-        const cardScreenPosition = card.position.clone().project(camera);
+        // Hover tilt behavior
+        const cardScreenPosition = cardPivot.position.clone().project(camera);
         const tiltX = (mouse.y - cardScreenPosition.y) * 0.5;
         const tiltY = (mouse.x - cardScreenPosition.x) * 0.5;
         
         cardState.targetRotation.x = -tiltX;
         cardState.targetRotation.y = tiltY;
     } else {
-        // Reset target rotation when not hovering
         cardState.targetRotation.x = 0;
         cardState.targetRotation.y = 0;
     }
@@ -130,6 +187,7 @@ function onMouseMove(event) {
 
 function onMouseUp() {
     cardState.isDragging = false;
+    cardPivot.rotation.z = 0;  // Reset rotation immediately
 }
 
 function animate() {
@@ -137,13 +195,11 @@ function animate() {
     
     if (!cardState.isDragging) {
         // Apply velocity and damping
-        card.position.add(cardState.velocity);
+        cardPivot.position.add(cardState.velocity);
         cardState.velocity.multiplyScalar(cardState.dampingFactor);
         
         // Return to origin
-        if (!cardState.isDragging) {
-            card.position.lerp(new THREE.Vector3(0, 0, 0), cardState.returnSpeed);
-        }
+        cardPivot.position.lerp(new THREE.Vector3(0, 0, 0), cardState.returnSpeed);
         
         // Idle animation when not hovering
         if (!cardState.isHovering) {
@@ -153,7 +209,7 @@ function animate() {
         }
     }
     
-    // Smooth rotation lerping
+    // Smooth rotation lerping (except for z which is handled by drag)
     card.rotation.x += (cardState.targetRotation.x - card.rotation.x) * cardState.rotationSpeed;
     card.rotation.y += (cardState.targetRotation.y - card.rotation.y) * cardState.rotationSpeed;
     
