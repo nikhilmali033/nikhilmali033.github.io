@@ -30,14 +30,16 @@ function init() {
     // Create cube with texture
     const geometry = new THREE.BoxGeometry(2, 2, 2);
     
-    // Load texture with absolute path
+    // Load texture with correct path
     const textureLoader = new THREE.TextureLoader();
     
     console.log('Loading texture...');
     
-    // Use a simple path approach
+    // Use a path that works in both development and production
+    const texturePath = '/textures/lowrezcat.jpg'; // Note the leading slash
+    
     textureLoader.load(
-        './textures/lowrezcat.jpg',  // Make sure you have this file
+        texturePath,
         (texture) => {
             console.log('Texture loaded successfully');
             
