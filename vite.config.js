@@ -6,7 +6,7 @@ export default defineConfig({
     // Use the repository name as the base path for GitHub Pages
     // If your repository is named "username.github.io", then use "/"
     // If your repository is named anything else, use "/repository-name/"
-    base: '/',
+    base: '/nikhilmali033/',
     
     // Define build output directory
     build: {
