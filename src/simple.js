@@ -37,7 +37,7 @@ function init() {
     
     // Use a simple path approach
     textureLoader.load(
-        './textures/joker.png',  // Make sure you have this file
+        './textures/lowrezcat.jpg',  // Make sure you have this file
         (texture) => {
             console.log('Texture loaded successfully');
             
