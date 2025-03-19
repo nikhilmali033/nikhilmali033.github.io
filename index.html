@@ -3,93 +3,24 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>WebGL Project</title>
+    <title>Simple THREE.js Cube</title>
     <style>
-        * {
+        body {
             margin: 0;
             padding: 0;
-            box-sizing: border-box;
-        }
-
-        html, body {
-            width: 100%;
-            height: 100%;
             overflow: hidden;
-            background-color: #000;
         }
-
         #app {
-            position: fixed;
-            top: 0;
-            left: 0;
             width: 100%;
-            height: 100%;
-            touch-action: none;
-            border: 2px solid red; /* Debug border */
-        }
-
-        #debug-overlay {
-            position: fixed;
-            top: 10px;
-            left: 10px;
-            color: white;
-            font-family: monospace;
-            font-size: 12px;
-            pointer-events: none;
-            z-index: 1000;
-            background: rgba(0, 0, 0, 0.7);
-            padding: 10px;
-        }
-
-        .loading {
-            position: fixed;
-            top: 50%;
-            left: 50%;
-            transform: translate(-50%, -50%);
-            color: white;
-            font-family: Arial, sans-serif;
-            font-size: 1.2em;
+            height: 100vh;
         }
     </style>
+    <!-- Import THREE.js from CDN instead of using modules -->
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/0.160.1/three.min.js"></script>
 </head>
 <body>
     <div id="app"></div>
-    <div id="debug-overlay">Initializing...</div>
-
-    <script type="module" src="/src/main.js"></script>
-    <script>
-        // Debug overlay updater
-        const debugOverlay = document.getElementById('debug-overlay');
-        const appContainer = document.getElementById('app');
-
-        function updateDebugInfo() {
-            const info = [
-                `Window: ${window.innerWidth}x${window.innerHeight}`,
-                `Container: ${appContainer.offsetWidth}x${appContainer.offsetHeight}`,
-                `DPR: ${window.devicePixelRatio}`,
-                `Time: ${new Date().toISOString()}`
-            ].join('\n');
-            
-            debugOverlay.textContent = info;
-        }
-
-        // Update debug info every second
-        setInterval(updateDebugInfo, 1000);
-        updateDebugInfo();
-
-        // Log WebGL context creation
-        const getContext = HTMLCanvasElement.prototype.getContext;
-        HTMLCanvasElement.prototype.getContext = function() {
-            const context = getContext.apply(this, arguments);
-            if (arguments[0] === 'webgl' || arguments[0] === 'webgl2') {
-                console.log('✅ WebGL context created:', {
-                    type: arguments[0],
-                    canvas: this,
-                    context
-                });
-            }
-            return context;
-        };
-    </script>
+    <!-- Use a regular script instead of a module -->
+    <script src="./src/simple.js"></script>
 </body>
 </html>
