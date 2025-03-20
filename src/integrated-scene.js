@@ -7,6 +7,7 @@ let activeChars = [];
 let animationComplete = false;
 let dropInProgress = false;
 let currentText = "Hello World";
+let cubeBody;
 
 // Character animation timing
 const charDelay = 150; // milliseconds between each character appearing
@@ -152,31 +153,42 @@ function createUIElements() {
     controlPanel.appendChild(restartBtn);
 }
 
+// Global variables for physics materials
+let physicsMaterial;
+
 function initPhysics() {
     // Initialize Cannon.js physics world
     world = new CANNON.World();
     world.gravity.set(0, -9.82, 0); // Earth gravity
     world.broadphase = new CANNON.NaiveBroadphase();
-    world.solver.iterations = 10;
+    world.solver.iterations = 20; // Increase solver iterations for better contact resolution
+    world.defaultContactMaterial.contactEquationStiffness = 1e7; // Harder contacts
+    world.defaultContactMaterial.contactEquationRelaxation = 4; // Softer relaxation
+    
+    // Create a lower friction material for all contacts
+    physicsMaterial = new CANNON.Material('physicsMaterial');
+    const physicsContactMaterial = new CANNON.ContactMaterial(
+        physicsMaterial,
+        physicsMaterial,
+        {
+            friction: 0.8, // Lower friction to reduce sticking
+            restitution: 0 // Higher restitution for more bounce
+        }
+    );
+    world.addContactMaterial(physicsContactMaterial);
     
     // Create ground plane for physics
     const groundShape = new CANNON.Plane();
     const groundBody = new CANNON.Body({
         mass: 0, // mass = 0 makes it static
+        material: physicsMaterial,
         shape: groundShape
     });
     groundBody.quaternion.setFromAxisAngle(new CANNON.Vec3(1, 0, 0), -Math.PI / 2); // Rotate to be flat
     groundBody.position.set(0, -2, 0);
     world.addBody(groundBody);
     
-    // Create physics body for the cube
-    const cubeShape = new CANNON.Box(new CANNON.Vec3(1, 1, 1)); // Half-dimensions
-    const cubeBody = new CANNON.Body({
-        mass: 0, // Static cube
-        shape: cubeShape
-    });
-    cubeBody.position.set(0, 0, 0);
-    world.addBody(cubeBody);
+    // The cube body will be created when the cube mesh is loaded
 }
 
 function addLights() {
@@ -232,6 +244,9 @@ function createCube() {
             cube.castShadow = true;
             cube.receiveShadow = true;
             scene.add(cube);
+            
+            // Create physics body for the rotating cube
+            createCubePhysics();
         },
         undefined,  // onProgress callback
         (error) => {
@@ -247,6 +262,9 @@ function createCube() {
             cube.castShadow = true;
             cube.receiveShadow = true;
             scene.add(cube);
+            
+            // Create physics body for the rotating cube
+            createCubePhysics();
         }
     );
 }
@@ -400,7 +418,10 @@ function createPhysicsChar(charInfo, index) {
     
     const body = new CANNON.Body({
         mass: 1,
-        shape: shape
+        shape: shape,
+        material: world.defaultMaterial, // Use the same material as other objects
+        linearDamping: 0.01, // Add slight damping to prevent excessive movement
+        angularDamping: 0.01 // Add slight rotational damping
     });
     
     // Match the position of the original text element exactly
@@ -521,23 +542,79 @@ function animate() {
         dropText();
     }
     
-    // Update physics
-    world.step(1/60);
+    // Calculate delta time to ensure consistent physics regardless of frame rate
+    const now = performance.now();
+    const deltaTime = now - (lastTime || now);
+    lastTime = now;
+    const fixedTimeStep = 1/60; // 60 fps
     
-    // Update mesh positions based on physics
+    // Update physics with substeps for better stability
+    world.step(fixedTimeStep, deltaTime / 1000, 3); // Add 3 substeps for more accurate physics
+    
+    // Update mesh positions based on physics and check for stuck letters
     textMeshes.forEach(item => {
         item.mesh.position.copy(item.body.position);
         item.mesh.quaternion.copy(item.body.quaternion);
+        
+        // Apply a tiny random impulse to letters that might be stuck
+        // (only if they're close to but not at rest, and near the cube)
+        const speed = item.body.velocity.length();
+        const distanceToCenter = item.body.position.distanceTo(new CANNON.Vec3(0, 0, 0));
+        
+        if (speed < 0.3 && speed > 0.05 && distanceToCenter < 2.5) {
+            const randomDir = new CANNON.Vec3(
+                (Math.random() - 0.5) * 0.05,
+                (Math.random() - 0.5) * 0.05,
+                (Math.random() - 0.5) * 0.05
+            );
+            item.body.applyImpulse(randomDir, item.body.position);
+        }
     });
     
-    // Rotate cube
-    if (cube) {
+    // Rotate cube and update its physics body
+    if (cube && cubeBody) {
+        // Update visual cube rotation
         cube.rotation.x += 0.01;
         cube.rotation.y += 0.01;
+        
+        // Update the physics body to match the visual rotation
+        const quaternion = new CANNON.Quaternion();
+        quaternion.setFromEuler(cube.rotation.x, cube.rotation.y, cube.rotation.z, 'XYZ');
+        cubeBody.quaternion.copy(quaternion);
     }
     
     // Render scene
     renderer.render(scene, camera);
+}
+
+// Track time for physics calculations
+let lastTime = null;
+
+// Create the physics body for the cube
+function createCubePhysics() {
+    // If a previous cube body exists, remove it
+    if (cubeBody) {
+        world.remove(cubeBody);
+    }
+    
+    // Create physics body for the cube
+    const cubeShape = new CANNON.Box(new CANNON.Vec3(1, 1, 1)); // Half-dimensions (2x2x2 cube)
+    cubeBody = new CANNON.Body({
+        mass: 0, // Static cube (mass = 0)
+        material: physicsMaterial,
+        shape: cubeShape
+    });
+    
+    // Set initial position to match the visual cube
+    cubeBody.position.copy(cube.position);
+    
+    // Set initial rotation to match the visual cube
+    const quaternion = new CANNON.Quaternion();
+    quaternion.setFromEuler(cube.rotation.x, cube.rotation.y, cube.rotation.z, 'XYZ');
+    cubeBody.quaternion.copy(quaternion);
+    
+    // Add to the physics world
+    world.addBody(cubeBody);
 }
 
 function onWindowResize() {
