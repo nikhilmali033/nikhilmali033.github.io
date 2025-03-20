@@ -118,10 +118,11 @@ export default class InteractiveCard extends InteractiveObject {
         this.add(this.glowMesh);
     }
 
-    // Extend event handlers from base class
     onPointerEnter(event) {
+        // Call the original method to maintain all existing behavior
         super.onPointerEnter(event);
         
+        // Initialize wiggle animation
         if (this._state.isHovering && !this._state.isDragging) {
             this._cardState.isInitialHover = true;
             this._cardState.initialHoverTime = Date.now();
@@ -129,6 +130,11 @@ export default class InteractiveCard extends InteractiveObject {
             this._cardState.scaleVelocity = 0.05;
             this._cardState.wiggleRotation = 0;
             this._cardState.wiggleVelocity = 0.15;
+        }
+        
+        // If we're hovering and have access to SceneManager, trigger text animation
+        if (this._state.isHovering && !this._state.isDragging && this.sceneManager) {
+            this.sceneManager.animateText("Card Hovered!");
         }
     }
 

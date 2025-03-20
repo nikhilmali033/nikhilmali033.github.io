@@ -1,5 +1,7 @@
 import * as THREE from 'three';
 import InteractiveCard from './InteractiveCard';
+import * as CANNON from 'cannon';
+import TextPhysics from './TextPhysics';
 
 /**
  * Manages the 3D scene and interaction between objects
@@ -20,7 +22,97 @@ export default class SceneManager {
         
         this._initializeScene();
         this._setupLighting();
+        this._initializePhysics(); // Add this line
         this._setupEventListeners();
+        
+        // TextPhysics will be initialized later when needed
+        this.textPhysics = null;
+    }
+
+
+    _initializePhysics() {
+        // Initialize physics world
+        this.world = new CANNON.World();
+        this.world.gravity.set(0, -9.82, 0);
+        this.world.broadphase = new CANNON.NaiveBroadphase();
+        
+        // Create ground plane
+        const groundShape = new CANNON.Plane();
+        const groundBody = new CANNON.Body({
+            mass: 0,
+            shape: groundShape
+        });
+        groundBody.quaternion.setFromAxisAngle(new CANNON.Vec3(1, 0, 0), -Math.PI / 2);
+        groundBody.position.set(0, -2, 0);
+        this.world.addBody(groundBody);
+    }
+
+    initTextPhysics() {
+        if (!this.textPhysics) {
+            this.textPhysics = new TextPhysics(this.scene, this.world);
+        }
+        return this.textPhysics;
+    }
+
+    animateText(text) {
+        if (!this.textPhysics) {
+            console.warn('TextPhysics not initialized');
+            return false;
+        }
+        
+        this.textPhysics.animateText(text);
+        return true;
+    }
+    
+    // Modify the update method to include physics update
+    update(deltaTime) {
+        // Step the physics world
+        const now = performance.now();
+        const physicsDeltaTime = now - (this.lastPhysicsTime || now);
+        this.lastPhysicsTime = now;
+        const fixedTimeStep = 1/60; // 60 fps
+        this.world.step(fixedTimeStep, physicsDeltaTime / 1000, 3);
+        
+        // Update text physics if initialized
+        if (this.textPhysics) {
+            this.textPhysics.update(deltaTime);
+        }
+        
+        // Update all objects
+        this.interactiveObjects.forEach(object => object.update(deltaTime));
+        
+        // Render scene
+        this.renderer.render(this.scene, this.camera);
+    }
+    
+    // Update the dispose method to clean up physics
+    dispose() {
+        // Clean up event listeners
+        window.removeEventListener('resize', this._onWindowResize);
+        this.renderer.domElement.removeEventListener('pointerdown', this._onPointerDown);
+        this.renderer.domElement.removeEventListener('pointermove', this._onPointerMove);
+        this.renderer.domElement.removeEventListener('pointerup', this._onPointerUp);
+        this.renderer.domElement.removeEventListener('pointerout', this._onPointerUp);
+        
+        // Clean up text physics if initialized
+        if (this.textPhysics) {
+            this.textPhysics.dispose();
+            this.textPhysics = null;
+        }
+        
+        // Dispose of interactive objects
+        this.interactiveObjects.forEach(object => {
+            object.dispose();
+        });
+        this.interactiveObjects.clear();
+        
+        // Dispose of renderer
+        this.renderer.dispose();
+        
+        // Remove canvas from container
+        if (this.container.contains(this.renderer.domElement)) {
+            this.container.removeChild(this.renderer.domElement);
+        }
     }
 
     _initializeScene() {
@@ -364,43 +456,5 @@ export default class SceneManager {
         this.interactiveObjects.delete(object);
         this.scene.remove(object);
         object.dispose();
-    }
-
-    /**
-     * Update all objects and render the scene
-     * @param {number} deltaTime - Time since last update
-     */
-    update(deltaTime) {
-        // Update all objects
-        this.interactiveObjects.forEach(object => object.update(deltaTime));
-        
-        // Render scene
-        this.renderer.render(this.scene, this.camera);
-    }
-
-    /**
-     * Clean up and dispose of resources
-     */
-    dispose() {
-        // Clean up event listeners
-        window.removeEventListener('resize', this._onWindowResize);
-        this.renderer.domElement.removeEventListener('pointerdown', this._onPointerDown);
-        this.renderer.domElement.removeEventListener('pointermove', this._onPointerMove);
-        this.renderer.domElement.removeEventListener('pointerup', this._onPointerUp);
-        this.renderer.domElement.removeEventListener('pointerout', this._onPointerUp);
-        
-        // Dispose of interactive objects
-        this.interactiveObjects.forEach(object => {
-            object.dispose();
-        });
-        this.interactiveObjects.clear();
-        
-        // Dispose of renderer
-        this.renderer.dispose();
-        
-        // Remove canvas from container
-        if (this.container.contains(this.renderer.domElement)) {
-            this.container.removeChild(this.renderer.domElement);
-        }
     }
 }
