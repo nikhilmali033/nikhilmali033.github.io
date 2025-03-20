@@ -39,12 +39,12 @@ function init() {
 
     // Load texture
     const textureLoader = new THREE.TextureLoader();
-    const basePath = window.location.hostname === 'localhost' 
-        ? './textures/joker.png'  // Local development
-        : '/repository-name/textures/joker.png';  // GitHub Pages
+    // const basePath = window.location.hostname === 'localhost' 
+    //     ? './textures/joker.png'  // Local development
+    //     : '/repository-name/textures/joker.png';  // GitHub Pages
 
     textureLoader.load(
-        basePath,
+        './textures/lowrezcat.jpg',
         (texture) => {
             texture.minFilter = THREE.LinearFilter;
             texture.magFilter = THREE.LinearFilter;
