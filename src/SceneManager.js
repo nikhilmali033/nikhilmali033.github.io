@@ -40,16 +40,16 @@ class SceneManager {
         // Add to container
         this.container.appendChild(this.renderer.domElement);
 
-        // Create common shadow-catching plane
-        const shadowCatcher = new THREE.Mesh(
-            new THREE.PlaneGeometry(20, 20),
-            new THREE.ShadowMaterial({
-                opacity: 0.3
-            })
-        );
-        shadowCatcher.position.z = -1;
-        shadowCatcher.receiveShadow = true;
-        this.scene.add(shadowCatcher);
+        // Create common shadow-catching ground plane
+        const groundGeometry = new THREE.PlaneGeometry(20, 20);
+        const groundMaterial = new THREE.ShadowMaterial({
+            opacity: 0.3
+        });
+        this.ground = new THREE.Mesh(groundGeometry, groundMaterial);
+        this.ground.position.z = -1;
+        this.ground.rotation.x = 0; // Already facing camera
+        this.ground.receiveShadow = true;
+        this.scene.add(this.ground);
     }
 
     _setupLighting() {
@@ -207,7 +207,10 @@ class SceneManager {
         let maxZ = Math.max(
             ...Array.from(this.cards).map(c => c.position.z)
         );
-        card.position.z = maxZ + 0.01;
+        // Only adjust if the card is not already selected (which elevates it)
+        if (!card._state.isSelected) {
+            card.position.z = maxZ + 0.01;
+        }
     }
 
     addCard(texture, config = {}) {

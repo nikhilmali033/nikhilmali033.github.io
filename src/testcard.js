@@ -24,8 +24,11 @@ export default class InteractiveCard extends THREE.Object3D {
             rotation: new THREE.Euler(),
             isDragging: false,
             isHovering: false,
+            isSelected: false,
             dragOffset: new THREE.Vector3(),
             targetRotation: new THREE.Euler(),
+            dragStartTime: 0,
+            dragStartPosition: new THREE.Vector2(),
             lastMouseX: 0,
             pivotOffset: 0.7,
             // Animation states
@@ -35,7 +38,14 @@ export default class InteractiveCard extends THREE.Object3D {
             initialHoverTime: 0,
             isInitialHover: false,
             wiggleRotation: 0,
-            wiggleVelocity: 0
+            wiggleVelocity: 0,
+            // Glow effect
+            glowIntensity: 0,
+            targetGlowIntensity: 0,
+            glowVelocity: 0,
+            // Z-position
+            targetZ: 0,
+            zVelocity: 0
         };
 
         // Store configuration
@@ -74,13 +84,30 @@ export default class InteractiveCard extends THREE.Object3D {
         // Add mesh to this Object3D
         this.add(this.cardMesh);
 
-        // Create and add shadow receiver
-        const shadowGeometry = new THREE.PlaneGeometry(width * 2, height * 2);
-        const shadowMaterial = new THREE.ShadowMaterial({ opacity: 0.3 });
-        this.shadowReceiver = new THREE.Mesh(shadowGeometry, shadowMaterial);
-        this.shadowReceiver.position.z = -0.5;
-        this.shadowReceiver.receiveShadow = true;
-        this.add(this.shadowReceiver);
+        // Create glow effect
+        this._createGlowEffect(width, height);
+    }
+
+    _createGlowEffect(width, height) {
+        // Create slightly larger geometry for glow
+        const glowGeometry = new THREE.PlaneGeometry(width * 1.1, height * 1.1);
+        
+        // Create glow material
+        const glowMaterial = new THREE.MeshBasicMaterial({
+            color: 0x00ffff,
+            transparent: true,
+            opacity: 0,
+            side: THREE.DoubleSide,
+            blending: THREE.AdditiveBlending
+        });
+        
+        // Create glow mesh
+        this.glowMesh = new THREE.Mesh(glowGeometry, glowMaterial);
+        this.glowMesh.position.z = -0.05; // Slightly behind card
+        this.glowMesh.position.y = -this._state.pivotOffset; // Same pivot offset as card
+        
+        // Add glow to this Object3D
+        this.add(this.glowMesh);
     }
 
     _initializeInteraction() {
@@ -108,7 +135,7 @@ export default class InteractiveCard extends THREE.Object3D {
     onPointerLeave = (event) => {
         if (!this._state.isDragging) {
             this._state.isHovering = false;
-            this._state.targetScale = 1.0;
+            this._state.targetScale = this._state.isSelected ? 1.1 : 1.0;
             this._state.isInitialHover = false;
         }
     }
@@ -141,15 +168,47 @@ export default class InteractiveCard extends THREE.Object3D {
         this._state.dragOffset.copy(this.position).sub(intersectPoint);
         
         this._state.lastMouseX = event.clientX;
+        
+        // Record drag start time and position for click detection
+        this._state.dragStartTime = Date.now();
+        this._state.dragStartPosition = new THREE.Vector2(event.clientX, event.clientY);
     }
 
     onDragEnd = (event) => {
         this._state.isDragging = false;
         this.rotation.z = 0;
         
-        if (!this._state.isHovering) {
+        // Check if this was a click (short time and minimal movement)
+        const dragEndTime = Date.now();
+        const dragDuration = dragEndTime - this._state.dragStartTime;
+        
+        const dragEndPosition = new THREE.Vector2(event.clientX, event.clientY);
+        const distance = dragEndPosition.distanceTo(this._state.dragStartPosition);
+        
+        // If drag was short and movement was minimal, consider it a click
+        if (dragDuration < 200 && distance < 5) {
+            this.toggleSelected();
+        }
+        
+        if (!this._state.isHovering && !this._state.isSelected) {
             this._state.targetScale = 1.0;
             this._state.isInitialHover = false;
+        }
+    }
+
+    toggleSelected() {
+        this._state.isSelected = !this._state.isSelected;
+        
+        if (this._state.isSelected) {
+            // Enter selected state
+            this._state.targetScale = 1.1;
+            this._state.targetGlowIntensity = 0.7;
+            this._state.targetZ = 0.5; // Lift card up a bit
+        } else {
+            // Exit selected state
+            this._state.targetScale = this._state.isHovering ? 1.1 : 1.0;
+            this._state.targetGlowIntensity = 0;
+            this._state.targetZ = 0;
         }
     }
 
@@ -159,6 +218,8 @@ export default class InteractiveCard extends THREE.Object3D {
         this._updateWiggle();
         this._updatePosition();
         this._updateRotation();
+        this._updateGlow();
+        this._updateElevation();
     }
 
     _updateScale() {
@@ -171,6 +232,7 @@ export default class InteractiveCard extends THREE.Object3D {
         
         // Apply scale
         this.cardMesh.scale.set(this._state.scale, this._state.scale, 1);
+        this.glowMesh.scale.set(this._state.scale, this._state.scale, 1);
     }
 
     _updateWiggle() {
@@ -181,6 +243,7 @@ export default class InteractiveCard extends THREE.Object3D {
             this._state.wiggleRotation += this._state.wiggleVelocity;
             
             this.cardMesh.rotation.z = this._state.wiggleRotation;
+            this.glowMesh.rotation.z = this._state.wiggleRotation;
             
             if (Math.abs(this._state.wiggleVelocity) < 0.001 && 
                 Math.abs(this._state.wiggleRotation) < 0.001) {
@@ -196,14 +259,15 @@ export default class InteractiveCard extends THREE.Object3D {
             this.position.add(this._state.velocity);
             this._state.velocity.multiplyScalar(this._config.dragBehavior.dampingFactor);
             
-            // Return to origin
-            this.position.lerp(new THREE.Vector3(0, 0, 0), 
-                             this._config.dragBehavior.returnSpeed);
+            // Return to origin (but keep z position for elevation)
+            const targetPosition = new THREE.Vector3(0, 0, this.position.z);
+            this.position.x += (targetPosition.x - this.position.x) * this._config.dragBehavior.returnSpeed;
+            this.position.y += (targetPosition.y - this.position.y) * this._config.dragBehavior.returnSpeed;
         }
     }
 
     _updateRotation() {
-        if (!this._state.isDragging && !this._state.isHovering) {
+        if (!this._state.isDragging && !this._state.isHovering && !this._state.isSelected) {
             // Idle animation
             const time = Date.now() * 0.001;
             this._state.targetRotation.x = Math.sin(time) * 0.1;
@@ -215,6 +279,31 @@ export default class InteractiveCard extends THREE.Object3D {
                                    this.cardMesh.rotation.x) * 0.1;
         this.cardMesh.rotation.y += (this._state.targetRotation.y - 
                                    this.cardMesh.rotation.y) * 0.1;
+        
+        // Apply same rotation to glow
+        this.glowMesh.rotation.x = this.cardMesh.rotation.x;
+        this.glowMesh.rotation.y = this.cardMesh.rotation.y;
+    }
+
+    _updateGlow() {
+        // Spring physics for glow intensity
+        const glowDiff = this._state.targetGlowIntensity - this._state.glowIntensity;
+        const glowForce = glowDiff * 0.2; // Using a different strength for glow
+        this._state.glowVelocity += glowForce;
+        this._state.glowVelocity *= 0.9; // Damping
+        this._state.glowIntensity += this._state.glowVelocity;
+        
+        // Apply glow intensity
+        this.glowMesh.material.opacity = this._state.glowIntensity;
+    }
+
+    _updateElevation() {
+        // Spring physics for z position (elevation)
+        const zDiff = this._state.targetZ - this.position.z;
+        const zForce = zDiff * 0.2;
+        this._state.zVelocity += zForce;
+        this._state.zVelocity *= 0.9; // Damping
+        this.position.z += this._state.zVelocity;
     }
 
     // Cleanup
@@ -224,7 +313,7 @@ export default class InteractiveCard extends THREE.Object3D {
         if (this.cardMesh.material.map) {
             this.cardMesh.material.map.dispose();
         }
-        this.shadowReceiver.geometry.dispose();
-        this.shadowReceiver.material.dispose();
+        this.glowMesh.geometry.dispose();
+        this.glowMesh.material.dispose();
     }
 }
