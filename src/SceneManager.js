@@ -1,13 +1,22 @@
 import * as THREE from 'three';
-import InteractiveCard from './testcard';
+import InteractiveCard from './InteractiveCard';
 
-class SceneManager {
+/**
+ * Manages the 3D scene and interaction between objects
+ */
+export default class SceneManager {
     constructor(container) {
         this.container = container;
-        this.cards = new Set();
+        this.interactiveObjects = new Set();
         this.raycaster = new THREE.Raycaster();
         this.mouse = new THREE.Vector2();
-        this.draggedCard = null;
+        this.draggedObject = null;
+        
+        // Global state management
+        this.state = {
+            selectedCards: new Set(),
+            selectionListeners: new Set()
+        };
         
         this._initializeScene();
         this._setupLighting();
@@ -106,33 +115,44 @@ class SceneManager {
         this.mouse.y = -(event.clientY / window.innerHeight) * 2 + 1;
     }
 
+    _getInteractiveMeshes() {
+        // Collect all interactive meshes from all interactive objects
+        return Array.from(this.interactiveObjects)
+            .map(obj => obj.interactiveMesh)
+            .filter(mesh => mesh != null);
+    }
+
+    _findParentObject(mesh) {
+        return mesh?.userData?.parent || null;
+    }
+
     _onPointerDown(event) {
         this._updateMousePosition(event);
         
         // Update raycaster
         this.raycaster.setFromCamera(this.mouse, this.camera);
         
-        // Get all intersected cards
-        const intersects = this.raycaster.intersectObjects(
-            Array.from(this.cards).map(card => card.cardMesh)
-        );
+        // Get all intersected objects
+        const intersects = this.raycaster.intersectObjects(this._getInteractiveMeshes());
 
         if (intersects.length > 0) {
-            const intersectedCard = intersects[0].object.userData.parent;
-            this.draggedCard = intersectedCard;
-            
-            // Create event object with necessary data
-            const eventData = {
-                clientX: event.clientX,
-                clientY: event.clientY,
-                ray: this.raycaster.ray,
-                camera: this.camera
-            };
-            
-            intersectedCard.onDragStart(eventData);
-            
-            // Bring card to front
-            this._bringToFront(intersectedCard);
+            const intersectedObject = this._findParentObject(intersects[0].object);
+            if (intersectedObject) {
+                this.draggedObject = intersectedObject;
+                
+                // Create event object with necessary data
+                const eventData = {
+                    clientX: event.clientX,
+                    clientY: event.clientY,
+                    ray: this.raycaster.ray,
+                    camera: this.camera
+                };
+                
+                intersectedObject.onDragStart(eventData);
+                
+                // Bring object to front
+                this._bringToFront(intersectedObject);
+            }
         }
     }
 
@@ -143,28 +163,31 @@ class SceneManager {
         // Update raycaster
         this.raycaster.setFromCamera(this.mouse, this.camera);
         
-        if (this.draggedCard) {
-            // Handle drag
-            const intersectPlane = new THREE.Plane(new THREE.Vector3(0, 0, 1), 0);
-            const intersectPoint = new THREE.Vector3();
-            this.raycaster.ray.intersectPlane(intersectPlane, intersectPoint);
-            
-            // Update card position
-            this.draggedCard.position.copy(intersectPoint);
-            this.draggedCard.position.add(this.draggedCard._state.dragOffset);
-            
-            // Calculate and apply rotation based on drag velocity
-            const rotationAmount = THREE.MathUtils.clamp(
-                (this.mouse.x - previousX) * -2,
-                -Math.PI / 4,
-                Math.PI / 4
-            );
-            this.draggedCard.rotation.z = rotationAmount;
+        if (this.draggedObject) {
+            // Handle drag if the object supports dragging
+            if (this.draggedObject.config.dragBehavior.enabled) {
+                // Handle drag
+                const intersectPlane = new THREE.Plane(new THREE.Vector3(0, 0, 1), 0);
+                const intersectPoint = new THREE.Vector3();
+                this.raycaster.ray.intersectPlane(intersectPlane, intersectPoint);
+                
+                // Update object position
+                this.draggedObject.position.copy(intersectPoint);
+                this.draggedObject.position.add(this.draggedObject._state.dragOffset);
+                
+                // Calculate and apply rotation based on drag velocity (if it's a card)
+                if (this.draggedObject instanceof InteractiveCard) {
+                    const rotationAmount = THREE.MathUtils.clamp(
+                        (this.mouse.x - previousX) * -2,
+                        -Math.PI / 4,
+                        Math.PI / 4
+                    );
+                    this.draggedObject.rotation.z = rotationAmount;
+                }
+            }
         } else {
             // Handle hover
-            const intersects = this.raycaster.intersectObjects(
-                Array.from(this.cards).map(card => card.cardMesh)
-            );
+            const intersects = this.raycaster.intersectObjects(this._getInteractiveMeshes());
             
             // Create event object
             const eventData = {
@@ -173,67 +196,191 @@ class SceneManager {
                 camera: this.camera
             };
 
-            // Update hover states
-            this.cards.forEach(card => {
+            // Update hover states for all objects
+            this.interactiveObjects.forEach(obj => {
                 const isIntersected = intersects.some(
-                    intersect => intersect.object.userData.parent === card
+                    intersect => this._findParentObject(intersect.object) === obj
                 );
                 
-                if (isIntersected && !card._state.isHovering) {
-                    card.onPointerEnter(eventData);
-                } else if (!isIntersected && card._state.isHovering) {
-                    card.onPointerLeave(eventData);
+                if (isIntersected && !obj._state.isHovering) {
+                    obj.onPointerEnter(eventData);
+                } else if (!isIntersected && obj._state.isHovering) {
+                    obj.onPointerLeave(eventData);
                 }
                 
                 if (isIntersected) {
-                    card.onPointerMove(eventData);
+                    obj.onPointerMove(eventData);
                 }
             });
         }
     }
 
     _onPointerUp(event) {
-        if (this.draggedCard) {
-            this.draggedCard.onDragEnd({
+        if (this.draggedObject) {
+            this.draggedObject.onDragEnd({
                 clientX: event.clientX,
                 clientY: event.clientY
             });
-            this.draggedCard = null;
+            this.draggedObject = null;
         }
     }
 
-    _bringToFront(card) {
-        // Calculate new z-position that's slightly in front of all other cards
+    _bringToFront(object) {
+        // Calculate new z-position that's slightly in front of all other objects
         let maxZ = Math.max(
-            ...Array.from(this.cards).map(c => c.position.z)
+            ...Array.from(this.interactiveObjects).map(obj => obj.position.z)
         );
-        // Only adjust if the card is not already selected (which elevates it)
-        if (!card._state.isSelected) {
-            card.position.z = maxZ + 0.01;
+        
+        // Only adjust if the object is not already selected (which elevates it)
+        if (!object._state.isSelected) {
+            object.position.z = maxZ + 0.01;
         }
     }
 
+    /**
+     * Register a selection state listener
+     * @param {Function} listener - Callback function(selectedCards)
+     * @return {Function} - Function to unregister the listener
+     */
+    addSelectionListener(listener) {
+        if (typeof listener !== 'function') return () => {};
+        
+        this.state.selectionListeners.add(listener);
+        
+        // Return function to remove this listener
+        return () => {
+            this.state.selectionListeners.delete(listener);
+        };
+    }
+    
+    /**
+     * Notify all selection listeners of state change
+     * @private
+     */
+    _notifySelectionChange() {
+        const selectedCards = Array.from(this.state.selectedCards);
+        this.state.selectionListeners.forEach(listener => {
+            try {
+                listener(selectedCards);
+            } catch (err) {
+                console.error('Error in selection listener:', err);
+            }
+        });
+    }
+    
+    /**
+     * Handle object selection state change
+     * @param {InteractiveObject} object - The object that changed state
+     * @private
+     */
+    _handleSelectionChange(object) {
+        // Currently only tracking cards
+        if (object instanceof InteractiveCard) {
+            if (object._state.isSelected) {
+                this.state.selectedCards.add(object);
+            } else {
+                this.state.selectedCards.delete(object);
+            }
+            
+            // Notify listeners
+            this._notifySelectionChange();
+        }
+    }
+    
+    /**
+     * Get all currently selected cards
+     * @return {Array} - Array of selected card objects
+     */
+    getSelectedCards() {
+        return Array.from(this.state.selectedCards);
+    }
+    
+    /**
+     * Check if any cards are selected
+     * @return {boolean} - True if at least one card is selected
+     */
+    hasSelectedCards() {
+        return this.state.selectedCards.size > 0;
+    }
+
+    /**
+     * Add an interactive object to the scene
+     * @param {InteractiveObject} object - The object to add
+     */
+    addObject(object) {
+        this.interactiveObjects.add(object);
+        this.scene.add(object);
+        
+        // Set up selection change tracking
+        if ('setCallback' in object) {
+            // Listen for selection changes
+            object.setCallback('onSelect', () => this._handleSelectionChange(object));
+            object.setCallback('onDeselect', () => this._handleSelectionChange(object));
+        }
+        
+        return object;
+    }
+
+    /**
+     * Create and add a card with the given texture
+     * @param {THREE.Texture} texture - Texture for the card
+     * @param {Object} config - Configuration for the card
+     */
     addCard(texture, config = {}) {
         const card = new InteractiveCard({ texture, ...config });
-        this.cards.add(card);
-        this.scene.add(card);
-        return card;
+        return this.addObject(card);
+    }
+    
+    /**
+     * Create and add a confirm button that activates when cards are selected
+     * @param {Object} buttonObject - The button object to add
+     * @param {Function} onConfirm - Callback when button is clicked
+     */
+    addConfirmButton(buttonObject, onConfirm) {
+        // Add button to scene
+        this.addObject(buttonObject);
+        
+        // Set inactive by default
+        buttonObject.setActive(false);
+        
+        // Set up click handler
+        if (typeof onConfirm === 'function') {
+            buttonObject.setCallback('onClick', onConfirm);
+        }
+        
+        // Add selection listener to update button state
+        this.addSelectionListener((selectedCards) => {
+            buttonObject.setActive(selectedCards.length > 0);
+        });
+        
+        return buttonObject;
     }
 
-    removeCard(card) {
-        this.cards.delete(card);
-        this.scene.remove(card);
-        card.dispose();
+    /**
+     * Remove an object from the scene
+     * @param {InteractiveObject} object - The object to remove
+     */
+    removeObject(object) {
+        this.interactiveObjects.delete(object);
+        this.scene.remove(object);
+        object.dispose();
     }
 
+    /**
+     * Update all objects and render the scene
+     * @param {number} deltaTime - Time since last update
+     */
     update(deltaTime) {
-        // Update all cards
-        this.cards.forEach(card => card.update(deltaTime));
+        // Update all objects
+        this.interactiveObjects.forEach(object => object.update(deltaTime));
         
         // Render scene
         this.renderer.render(this.scene, this.camera);
     }
 
+    /**
+     * Clean up and dispose of resources
+     */
     dispose() {
         // Clean up event listeners
         window.removeEventListener('resize', this._onWindowResize);
@@ -242,11 +389,11 @@ class SceneManager {
         this.renderer.domElement.removeEventListener('pointerup', this._onPointerUp);
         this.renderer.domElement.removeEventListener('pointerout', this._onPointerUp);
         
-        // Dispose of cards
-        this.cards.forEach(card => {
-            card.dispose();
+        // Dispose of interactive objects
+        this.interactiveObjects.forEach(object => {
+            object.dispose();
         });
-        this.cards.clear();
+        this.interactiveObjects.clear();
         
         // Dispose of renderer
         this.renderer.dispose();
@@ -257,5 +404,3 @@ class SceneManager {
         }
     }
 }
-
-export default SceneManager;

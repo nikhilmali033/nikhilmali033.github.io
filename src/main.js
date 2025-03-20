@@ -1,5 +1,6 @@
 import * as THREE from 'three';
 import SceneManager from './SceneManager';
+import ConfirmButton from './ConfirmButton';
 
 let sceneManager;
 let animationFrameId;
@@ -10,6 +11,31 @@ function init() {
 
     // Create scene manager
     sceneManager = new SceneManager(container);
+    
+    // Add confirm button
+    const confirmButton = new ConfirmButton({
+        text: 'Confirm',
+        position: { x: 2, y: -2, z: 0.1 },
+        activeColor: 0x22aa22,  // Green when active
+        inactiveColor: 0x888888 // Gray when inactive
+    });
+    
+    // Add button with confirm handler
+    sceneManager.addConfirmButton(confirmButton, (button) => {
+        console.log('Confirmed selection:', sceneManager.getSelectedCards());
+        // Here you could process the selected cards
+        
+        // For this example, just log and flash the button
+        const origColor = button._props.activeColor;
+        button.buttonMesh.material.color.setHex(0x2222ff); // Flash blue
+        
+        // Reset color after a brief flash
+        setTimeout(() => {
+            if (button._buttonState.isActive) {
+                button.buttonMesh.material.color.setHex(origColor);
+            }
+        }, 200);
+    });
 
     // Load texture
     const textureLoader = new THREE.TextureLoader();
@@ -35,7 +61,16 @@ function init() {
                 },
                 dragBehavior: {
                     returnSpeed: 0.1,
-                    dampingFactor: 0.95
+                    dampingFactor: 0.95,
+                    enabled: true
+                },
+                selectionBehavior: {
+                    enabled: true,
+                    clickThreshold: 200,
+                    moveThreshold: 5
+                },
+                hoverBehavior: {
+                    enabled: true
                 }
             });
 
@@ -51,7 +86,7 @@ function init() {
 
 function animate() {
     animationFrameId = requestAnimationFrame(animate);
-    sceneManager.update(100);  // Pass fixed deltaTime or use actual time delta
+    sceneManager.update(1/60);  // Use fixed deltaTime or calculate actual time delta
 }
 
 function cleanup() {
