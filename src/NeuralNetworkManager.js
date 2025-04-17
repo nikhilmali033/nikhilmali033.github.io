@@ -4,9 +4,10 @@ import * as THREE from 'three';
  * Manages the neural network visualization in the 3D scene
  */
 export default class NeuralNetworkManager {
-    constructor(scene, camera) {
+    constructor(scene, camera, sceneManager) {
         this.scene = scene;
         this.camera = camera;
+        this.sceneManager = sceneManager; // Reference to SceneManager for callbacks
         this.isActive = false;
         this.animations = [];
         this.animationPhase = 0;
@@ -16,71 +17,17 @@ export default class NeuralNetworkManager {
             output: []
         };
         
+        // Get config from scene manager
+        this.config = sceneManager.config.neuralNetwork;
+        
         // Camera positions
         this.cameraPositions = {
-            network: new THREE.Vector3(0, 0, 25),
+            network: new THREE.Vector3(
+                this.config.camera.position.x,
+                this.config.camera.position.y,
+                this.config.camera.position.z
+            ),
             original: camera.position.clone()
-        };
-        
-        // Network configuration
-        this.config = {
-            // Neural network layout
-            network: {
-                // Layer positions on z-axis
-                layerPositions: {
-                    input: -5,
-                    hidden: 2,
-                    output: 9
-                },
-                
-                // Layer spacing
-                inputLayer: {
-                    neuronSize: 0.08,
-                    horizontalSpacing: 0.15,
-                    verticalSpacing: 0.15
-                },
-                
-                hiddenLayer: {
-                    neuronSize: 0.15,
-                    horizontalSpacing: 0.5,
-                    verticalSpacing: 0.5
-                },
-                
-                outputLayer: {
-                    neuronSize: 0.25,
-                    verticalSpacing: 0.8
-                },
-                
-                // Label positions
-                labels: {
-                    offsetY: 5,
-                    scale: { x: 2, y: 0.5, z: 1 }
-                }
-            },
-            
-            // Animation settings
-            animation: {
-                dataCubeSize: 0.08,
-                arcHeight: 0.5,
-                duration: 1000,
-                maxOpacity: 0.8
-            },
-            
-            // Colors
-            colors: {
-                background: 0x111133,
-                neuron: 0x3498db,
-                positiveWeight: 0x00ff00,
-                negativeWeight: 0xff0000,
-                highlightedNeuron: 0xff5722
-            }
-        };
-        
-        // Neural network structure
-        this.networkStructure = {
-            inputLayer: 784, // 28x28 pixels
-            hiddenLayer: 64,
-            outputLayer: 10
         };
         
         // Reference to DOM elements (will be set later)
@@ -150,7 +97,9 @@ export default class NeuralNetworkManager {
      * Hide the neural network visualization and overlay
      */
     hide() {
-        // Hide UI overlay
+        console.log("Hiding neural network visualization");
+        
+        // Hide UI overlay immediately
         if (this.ui.overlayContainer) {
             this.ui.overlayContainer.style.display = 'none';
         }
@@ -159,6 +108,12 @@ export default class NeuralNetworkManager {
         this._transitionCamera(this.cameraPositions.original, () => {
             // Hide network group after camera transition completes
             this.networkGroup.visible = false;
+            
+            // Notify SceneManager to complete the transition back to card view
+            if (this.sceneManager) {
+                console.log("Notifying SceneManager to complete transition to card view");
+                this.sceneManager.showCardView();
+            }
         });
         
         this.isActive = false;
@@ -175,14 +130,15 @@ export default class NeuralNetworkManager {
             startPosition: this.camera.position.clone(),
             targetPosition: targetPosition.clone(), // Make sure to clone the target
             startTime: Date.now(),
-            duration: 1500, // ms
+            duration: this.config.camera.transitionDuration, // ms
             callback: callback,
             isActive: true
         };
         
         console.log("Starting camera transition", {
             from: this.cameraTransition.startPosition,
-            to: this.cameraTransition.targetPosition
+            to: this.cameraTransition.targetPosition,
+            duration: this.cameraTransition.duration
         });
     }
     
@@ -247,35 +203,7 @@ export default class NeuralNetworkManager {
         setTimeout(() => {
             this.ui.resultText.textContent = predictedDigit;
             this.ui.resultContainer.style.display = 'block';
-        }, 4000);
-    }
-    
-    /**
-     * Initialize the neural network visualization
-     * @private
-     */
-    _initNetwork() {
-        // Create layers
-        this._createInputLayer();
-        this._createHiddenLayer();
-        this._createOutputLayer();
-        
-        // Add labels
-        const labelConfig = this.config.network.labels;
-        const layerPositions = this.config.network.layerPositions;
-        
-        this._addTextLabel(
-            "Input Layer", 
-            new THREE.Vector3(0, labelConfig.offsetY, layerPositions.input)
-        );
-        this._addTextLabel(
-            "Hidden Layer", 
-            new THREE.Vector3(0, labelConfig.offsetY, layerPositions.hidden)
-        );
-        this._addTextLabel(
-            "Output Layer", 
-            new THREE.Vector3(0, labelConfig.offsetY, layerPositions.output)
-        );
+        }, this.config.animation.resultDelay);
     }
     
     /**
@@ -416,12 +344,203 @@ export default class NeuralNetworkManager {
         
         // Button events
         this.ui.clearBtn.addEventListener('click', this._clearCanvas.bind(this));
+        
         this.ui.recognizeBtn.addEventListener('click', () => {
+            console.log("Recognize button clicked");
             this.processDrawing();
         });
+        
         this.ui.backBtn.addEventListener('click', () => {
-            this.hide();
+            console.log("Back button clicked");
+            this.hide(); // This will now properly transition back to card view
         });
+    }
+    
+    /**
+     * Initialize the neural network visualization
+     * @private
+     */
+    _initNetwork() {
+        // Create layers
+        this._createInputLayer();
+        this._createHiddenLayer();
+        this._createOutputLayer();
+        
+        // Add labels
+        const labelConfig = this.config.labels;
+        const layerPositions = this.config.layerPositions;
+        
+        this._addTextLabel(
+            "Input Layer", 
+            new THREE.Vector3(0, labelConfig.offsetY, layerPositions.input)
+        );
+        this._addTextLabel(
+            "Hidden Layer", 
+            new THREE.Vector3(0, labelConfig.offsetY, layerPositions.hidden)
+        );
+        this._addTextLabel(
+            "Output Layer", 
+            new THREE.Vector3(0, labelConfig.offsetY, layerPositions.output)
+        );
+    }
+    
+    /**
+     * Create the input layer (28x28 grid)
+     * @private
+     */
+    _createInputLayer() {
+        const layerConfig = this.config.inputLayer;
+        const neuronSize = layerConfig.neuronSize;
+        const gridSize = 28;
+        const hSpacing = layerConfig.horizontalSpacing;
+        const vSpacing = layerConfig.verticalSpacing;
+        const totalWidth = gridSize * hSpacing;
+        const zPosition = this.config.layerPositions.input;
+        
+        // Create neuron geometry
+        const geometry = new THREE.BoxGeometry(neuronSize, neuronSize, neuronSize);
+        
+        // Create neurons in a grid
+        for (let i = 0; i < this.config.structure.inputLayer; i++) {
+            const row = Math.floor(i / gridSize);
+            const col = i % gridSize;
+            
+            const x = (col * hSpacing) - (totalWidth / 2);
+            const y = (row * vSpacing) - (totalWidth / 2);
+            
+            const material = new THREE.MeshPhongMaterial({
+                color: this.config.colors.neuron,
+                transparent: true,
+                opacity: 0.5
+            });
+            
+            const neuron = new THREE.Mesh(geometry, material.clone());
+            neuron.position.set(x, y, zPosition);
+            
+            this.neurons.input.push({
+                mesh: neuron,
+                position: { x, y, z: zPosition },
+                index: i,
+                activation: 0
+            });
+            
+            this.networkGroup.add(neuron);
+        }
+    }
+    
+    /**
+     * Create the hidden layer
+     * @private
+     */
+    _createHiddenLayer() {
+        const layerConfig = this.config.hiddenLayer;
+        const neuronSize = layerConfig.neuronSize;
+        const gridSize = Math.ceil(Math.sqrt(this.config.structure.hiddenLayer));
+        const hSpacing = layerConfig.horizontalSpacing;
+        const vSpacing = layerConfig.verticalSpacing;
+        const totalSize = gridSize * hSpacing;
+        const zPosition = this.config.layerPositions.hidden;
+        
+        // Create neurons in a grid
+        const geometry = new THREE.BoxGeometry(neuronSize, neuronSize, neuronSize);
+        
+        for (let i = 0; i < this.config.structure.hiddenLayer; i++) {
+            const row = Math.floor(i / gridSize);
+            const col = i % gridSize;
+            
+            const x = (col * hSpacing) - (totalSize / 2);
+            const y = (row * vSpacing) - (totalSize / 2);
+            
+            const material = new THREE.MeshPhongMaterial({
+                color: this.config.colors.neuron,
+                transparent: true,
+                opacity: 0.5
+            });
+            
+            const neuron = new THREE.Mesh(geometry, material.clone());
+            neuron.position.set(x, y, zPosition);
+            
+            this.neurons.hidden.push({
+                mesh: neuron,
+                position: { x, y, z: zPosition },
+                index: i,
+                activation: 0
+            });
+            
+            this.networkGroup.add(neuron);
+        }
+    }
+    
+    /**
+     * Create the output layer
+     * @private
+     */
+    _createOutputLayer() {
+        const layerConfig = this.config.outputLayer;
+        const neuronSize = layerConfig.neuronSize;
+        const spacing = layerConfig.verticalSpacing;
+        const zPosition = this.config.layerPositions.output;
+        
+        // Create neurons in a vertical arrangement
+        const geometry = new THREE.BoxGeometry(neuronSize, neuronSize, neuronSize);
+        const totalHeight = (this.config.structure.outputLayer - 1) * spacing;
+        
+        for (let i = 0; i < this.config.structure.outputLayer; i++) {
+            const x = 0;
+            const y = (i * spacing) - (totalHeight / 2);
+            
+            const material = new THREE.MeshPhongMaterial({
+                color: this.config.colors.neuron,
+                transparent: true,
+                opacity: 0.5
+            });
+            
+            const neuron = new THREE.Mesh(geometry, material.clone());
+            neuron.position.set(x, y, zPosition);
+            
+            this.neurons.output.push({
+                mesh: neuron,
+                position: { x, y, z: zPosition },
+                index: i,
+                activation: 0
+            });
+            
+            this.networkGroup.add(neuron);
+            
+            // Add digit label
+            this._addTextLabel(
+                i.toString(), 
+                new THREE.Vector3(x + 0.6, y, zPosition)
+            );
+        }
+    }
+    
+    /* Other methods omitted for brevity - they remain unchanged except for using config values */
+    
+    /**
+     * Add text label to a 3D position
+     * @private
+     */
+    _addTextLabel(text, position) {
+        const canvas = document.createElement('canvas');
+        canvas.width = 256;
+        canvas.height = 64;
+        
+        const ctx = canvas.getContext('2d');
+        ctx.fillStyle = '#ffffff';
+        ctx.font = 'bold 36px Arial';
+        ctx.textAlign = 'center';
+        ctx.textBaseline = 'middle';
+        ctx.fillText(text, 128, 32);
+        
+        const texture = new THREE.CanvasTexture(canvas);
+        const material = new THREE.SpriteMaterial({ map: texture });
+        const sprite = new THREE.Sprite(material);
+        sprite.position.copy(position);
+        
+        const labelScale = this.config.labels.scale;
+        sprite.scale.set(labelScale.x, labelScale.y, labelScale.z);
+        this.networkGroup.add(sprite);
     }
     
     /**
@@ -536,163 +655,6 @@ export default class NeuralNetworkManager {
     }
     
     /**
-     * Create the input layer (28x28 grid)
-     * @private
-     */
-    _createInputLayer() {
-        const layerConfig = this.config.network.inputLayer;
-        const neuronSize = layerConfig.neuronSize;
-        const gridSize = 28;
-        const hSpacing = layerConfig.horizontalSpacing;
-        const vSpacing = layerConfig.verticalSpacing;
-        const totalWidth = gridSize * hSpacing;
-        const zPosition = this.config.network.layerPositions.input;
-        
-        // Create neuron geometry
-        const geometry = new THREE.BoxGeometry(neuronSize, neuronSize, neuronSize);
-        
-        // Create neurons in a grid
-        for (let i = 0; i < this.networkStructure.inputLayer; i++) {
-            const row = Math.floor(i / gridSize);
-            const col = i % gridSize;
-            
-            const x = (col * hSpacing) - (totalWidth / 2);
-            const y = (row * vSpacing) - (totalWidth / 2);
-            
-            const material = new THREE.MeshPhongMaterial({
-                color: this.config.colors.neuron,
-                transparent: true,
-                opacity: 0.5
-            });
-            
-            const neuron = new THREE.Mesh(geometry, material.clone());
-            neuron.position.set(x, y, zPosition);
-            
-            this.neurons.input.push({
-                mesh: neuron,
-                position: { x, y, z: zPosition },
-                index: i,
-                activation: 0
-            });
-            
-            this.networkGroup.add(neuron);
-        }
-    }
-    
-    /**
-     * Create the hidden layer
-     * @private
-     */
-    _createHiddenLayer() {
-        const layerConfig = this.config.network.hiddenLayer;
-        const neuronSize = layerConfig.neuronSize;
-        const gridSize = Math.ceil(Math.sqrt(this.networkStructure.hiddenLayer));
-        const hSpacing = layerConfig.horizontalSpacing;
-        const vSpacing = layerConfig.verticalSpacing;
-        const totalSize = gridSize * hSpacing;
-        const zPosition = this.config.network.layerPositions.hidden;
-        
-        // Create neurons in a grid
-        const geometry = new THREE.BoxGeometry(neuronSize, neuronSize, neuronSize);
-        
-        for (let i = 0; i < this.networkStructure.hiddenLayer; i++) {
-            const row = Math.floor(i / gridSize);
-            const col = i % gridSize;
-            
-            const x = (col * hSpacing) - (totalSize / 2);
-            const y = (row * vSpacing) - (totalSize / 2);
-            
-            const material = new THREE.MeshPhongMaterial({
-                color: this.config.colors.neuron,
-                transparent: true,
-                opacity: 0.5
-            });
-            
-            const neuron = new THREE.Mesh(geometry, material.clone());
-            neuron.position.set(x, y, zPosition);
-            
-            this.neurons.hidden.push({
-                mesh: neuron,
-                position: { x, y, z: zPosition },
-                index: i,
-                activation: 0
-            });
-            
-            this.networkGroup.add(neuron);
-        }
-    }
-    
-    /**
-     * Create the output layer
-     * @private
-     */
-    _createOutputLayer() {
-        const layerConfig = this.config.network.outputLayer;
-        const neuronSize = layerConfig.neuronSize;
-        const spacing = layerConfig.verticalSpacing;
-        const zPosition = this.config.network.layerPositions.output;
-        
-        // Create neurons in a vertical arrangement
-        const geometry = new THREE.BoxGeometry(neuronSize, neuronSize, neuronSize);
-        const totalHeight = (this.networkStructure.outputLayer - 1) * spacing;
-        
-        for (let i = 0; i < this.networkStructure.outputLayer; i++) {
-            const x = 0;
-            const y = (i * spacing) - (totalHeight / 2);
-            
-            const material = new THREE.MeshPhongMaterial({
-                color: this.config.colors.neuron,
-                transparent: true,
-                opacity: 0.5
-            });
-            
-            const neuron = new THREE.Mesh(geometry, material.clone());
-            neuron.position.set(x, y, zPosition);
-            
-            this.neurons.output.push({
-                mesh: neuron,
-                position: { x, y, z: zPosition },
-                index: i,
-                activation: 0
-            });
-            
-            this.networkGroup.add(neuron);
-            
-            // Add digit label
-            this._addTextLabel(
-                i.toString(), 
-                new THREE.Vector3(x + 0.6, y, zPosition)
-            );
-        }
-    }
-    
-    /**
-     * Add text label to a 3D position
-     * @private
-     */
-    _addTextLabel(text, position) {
-        const canvas = document.createElement('canvas');
-        canvas.width = 256;
-        canvas.height = 64;
-        
-        const ctx = canvas.getContext('2d');
-        ctx.fillStyle = '#ffffff';
-        ctx.font = 'bold 36px Arial';
-        ctx.textAlign = 'center';
-        ctx.textBaseline = 'middle';
-        ctx.fillText(text, 128, 32);
-        
-        const texture = new THREE.CanvasTexture(canvas);
-        const material = new THREE.SpriteMaterial({ map: texture });
-        const sprite = new THREE.Sprite(material);
-        sprite.position.copy(position);
-        
-        const labelScale = this.config.network.labels.scale;
-        sprite.scale.set(labelScale.x, labelScale.y, labelScale.z);
-        this.networkGroup.add(sprite);
-    }
-    
-    /**
      * Get pixel data from canvas
      * @private
      * @returns {Array} Array of pixel values (0-1)
@@ -736,19 +698,19 @@ export default class NeuralNetworkManager {
         setTimeout(() => {
             this.animationPhase = 2;
             this._updateHiddenLayer(activations.hidden);
-        }, 1900);
+        }, this.config.animation.hiddenLayerDelay);
         
         // Then animate hidden to output
         setTimeout(() => {
             this.animationPhase = 3;
             this._animateHiddenToOutput(activations.hidden, weights.hiddenToOutput);
-        }, 2300);
+        }, this.config.animation.outputLayerDelay);
         
         // Finally show output layer activations
         setTimeout(() => {
             this.animationPhase = 4;
             this._updateOutputLayer(activations.output);
-        }, 3550);
+        }, this.config.animation.resultDelay - 450); // Show results a bit before the final result appears
     }
     
     /**
@@ -758,14 +720,14 @@ export default class NeuralNetworkManager {
      */
     _simulateWeights() {
         return {
-            inputToHidden: Array(this.networkStructure.inputLayer)
+            inputToHidden: Array(this.config.structure.inputLayer)
                 .fill()
-                .map(() => Array(this.networkStructure.hiddenLayer)
+                .map(() => Array(this.config.structure.hiddenLayer)
                     .fill()
                     .map(() => Math.random() * 2 - 1)),
-            hiddenToOutput: Array(this.networkStructure.hiddenLayer)
+            hiddenToOutput: Array(this.config.structure.hiddenLayer)
                 .fill()
-                .map(() => Array(this.networkStructure.outputLayer)
+                .map(() => Array(this.config.structure.outputLayer)
                     .fill()
                     .map(() => Math.random() * 2 - 1))
         };
@@ -782,13 +744,13 @@ export default class NeuralNetworkManager {
         // Layer activations
         const activations = {
             input: inputData,
-            hidden: Array(this.networkStructure.hiddenLayer).fill(0),
-            output: Array(this.networkStructure.outputLayer).fill(0)
+            hidden: Array(this.config.structure.hiddenLayer).fill(0),
+            output: Array(this.config.structure.outputLayer).fill(0)
         };
         
         // Input to hidden
-        for (let i = 0; i < this.networkStructure.inputLayer; i++) {
-            for (let j = 0; j < this.networkStructure.hiddenLayer; j++) {
+        for (let i = 0; i < this.config.structure.inputLayer; i++) {
+            for (let j = 0; j < this.config.structure.hiddenLayer; j++) {
                 activations.hidden[j] += activations.input[i] * weights.inputToHidden[i][j];
             }
         }
@@ -797,8 +759,8 @@ export default class NeuralNetworkManager {
         activations.hidden = activations.hidden.map(x => Math.max(0, x));
         
         // Hidden to output
-        for (let i = 0; i < this.networkStructure.hiddenLayer; i++) {
-            for (let j = 0; j < this.networkStructure.outputLayer; j++) {
+        for (let i = 0; i < this.config.structure.hiddenLayer; i++) {
+            for (let j = 0; j < this.config.structure.outputLayer; j++) {
                 activations.output[j] += activations.hidden[i] * weights.hiddenToOutput[i][j];
             }
         }
@@ -891,11 +853,11 @@ export default class NeuralNetworkManager {
         // For each active input neuron, create data cubes flowing to each hidden neuron
         for (const inputIdx of activeInputIndices) {
             // Create connections to a subset of hidden neurons (for visual clarity)
-            const targetCount = 5; // Connect to 5 random hidden neurons
+            const targetCount = this.config.animation.connectionsPerNeuron;
             const targetIndices = [];
             
             while (targetIndices.length < targetCount) {
-                const rand = Math.floor(Math.random() * this.networkStructure.hiddenLayer);
+                const rand = Math.floor(Math.random() * this.config.structure.hiddenLayer);
                 if (!targetIndices.includes(rand)) {
                     targetIndices.push(rand);
                 }
@@ -915,7 +877,7 @@ export default class NeuralNetworkManager {
                         sourceNeuron.position,
                         targetNeuron.position,
                         weight,
-                        Math.random() * 1000 // Random delay
+                        Math.random() * this.config.animation.randomDelayFactor
                     );
                 }
             }
@@ -940,7 +902,7 @@ export default class NeuralNetworkManager {
         // Create data cubes flowing to output neurons
         for (const hiddenIdx of activeHiddenIndices) {
             // For each output neuron
-            for (let outputIdx = 0; outputIdx < this.networkStructure.outputLayer; outputIdx++) {
+            for (let outputIdx = 0; outputIdx < this.config.structure.outputLayer; outputIdx++) {
                 const weight = weights[hiddenIdx][outputIdx];
                 const contribution = hiddenActivations[hiddenIdx] * weight;
                 
@@ -953,7 +915,7 @@ export default class NeuralNetworkManager {
                         sourceNeuron.position,
                         targetNeuron.position,
                         weight,
-                        Math.random() * 500 // Random delay
+                        Math.random() * (this.config.animation.randomDelayFactor / 2) // Less delay for output layer
                     );
                 }
             }
@@ -1017,7 +979,7 @@ export default class NeuralNetworkManager {
      * Update animations
      */
     updateAnimations() {
-        if (!this.isActive) return;
+        if (!this.isActive && !this.cameraTransition?.isActive) return;
         
         // Update camera transitions
         this.updateCameraTransition();

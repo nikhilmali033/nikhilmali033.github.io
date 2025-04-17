@@ -9,13 +9,159 @@ import NeuralNetworkManager from './NeuralNetworkManager';
  * Manages the 3D scene and interaction between objects
  */
 export default class SceneManager {
-    constructor(container) {
+    constructor(container, customConfig = {}) {
         this.container = container;
         this.interactiveObjects = new Set();
         this.buttonObjects = new Set(); // Dedicated tracking for buttons
         this.raycaster = new THREE.Raycaster();
         this.mouse = new THREE.Vector2();
         this.draggedObject = null;
+        
+        // Default configuration
+        this.defaultConfig = {
+            // Debug settings
+            debug: true,
+            
+            // Camera settings
+            camera: {
+                fov: 75,
+                near: 0.1,
+                far: 1000,
+                position: { x: 0, y: 0, z: 5 }
+            },
+            
+            // Scene settings
+            scene: {
+                background: 0x2a1b3d
+            },
+            
+            // Card settings
+            card: {
+                physics: {
+                    strength: 0.3,       // Spring strength for animations
+                    damping: 0.75,       // Damping factor for animations
+                    wiggleStrength: 0.5, // Strength of wiggle animation
+                    wiggleDamping: 0.6   // Damping of wiggle animation
+                },
+                dragging: {
+                    returnSpeed: 0.1,    // Speed of return to origin
+                    dampingFactor: 0.95  // Damping factor for momentum
+                },
+                animation: {
+                    hoverScale: 1.1,     // Scale when hovering
+                    selectedScale: 1.1,  // Scale when selected
+                    selectedElevation: 0.5, // Z-axis elevation when selected
+                    glowIntensity: 0.7,  // Glow intensity when selected
+                    glowColor: 0x00ffff  // Color of glow effect
+                },
+                selection: {
+                    clickThreshold: 200, // Max time for a click (ms)
+                    moveThreshold: 5     // Max movement for a click (px)
+                },
+                dimensions: {
+                    width: 2,
+                    height: 3,
+                    pivotOffset: 0.7    // Offset for card pivot point
+                }
+            },
+            
+            // Button settings
+            button: {
+                dimensions: {
+                    analyzeWidth: 1.5,
+                    analyzeHeight: 0.5,
+                    debugWidth: 1.2,
+                    debugHeight: 0.4
+                },
+                positions: {
+                    analyze: { x: 0, y: -2, z: 0.1 },
+                    debug: { x: 2, y: 1.5, z: 0.1 }
+                },
+                colors: {
+                    activeAnalyze: 0x4287f5,
+                    inactiveAnalyze: 0x787878,
+                    activeDebug: 0xff0000,
+                    inactiveDebug: 0xaa0000
+                },
+                animations: {
+                    hoverScale: 1.1,
+                    clickScale: 1.2,
+                    springStrength: 0.3,
+                    springDamping: 0.7
+                }
+            },
+            
+            // Neural network settings
+            neuralNetwork: {
+                // Camera settings
+                camera: {
+                    position: { x: 0, y: 0, z: 25 },
+                    transitionDuration: 1500 // ms
+                },
+                
+                // Network structure
+                structure: {
+                    inputLayer: 784, // 28x28 pixels
+                    hiddenLayer: 64,
+                    outputLayer: 10
+                },
+                
+                // Layer positions
+                layerPositions: {
+                    input: -5,
+                    hidden: 2,
+                    output: 9
+                },
+                
+                // Layer configuration
+                inputLayer: {
+                    neuronSize: 0.08,
+                    horizontalSpacing: 0.15,
+                    verticalSpacing: 0.15
+                },
+                
+                hiddenLayer: {
+                    neuronSize: 0.15,
+                    horizontalSpacing: 0.5,
+                    verticalSpacing: 0.5
+                },
+                
+                outputLayer: {
+                    neuronSize: 0.25,
+                    verticalSpacing: 0.8
+                },
+                
+                // Label configuration
+                labels: {
+                    offsetY: 5,
+                    scale: { x: 2, y: 0.5, z: 1 }
+                },
+                
+                // Animation settings
+                animation: {
+                    dataCubeSize: 0.08,
+                    arcHeight: 0.5,
+                    duration: 1000,
+                    maxOpacity: 0.8,
+                    randomDelayFactor: 1000,
+                    connectionsPerNeuron: 5,
+                    hiddenLayerDelay: 1900,
+                    outputLayerDelay: 2300,
+                    resultDelay: 4000
+                },
+                
+                // Colors
+                colors: {
+                    neuron: 0x3498db,
+                    positiveWeight: 0x2ecc71,
+                    negativeWeight: 0xe74c3c,
+                    highlightedNeuron: 0xff5722
+                }
+            }
+        };
+        
+        // Merge custom config with defaults
+        this.config = this._mergeConfig(this.defaultConfig, customConfig);
         
         // Global state management
         this.state = {
@@ -36,9 +182,28 @@ export default class SceneManager {
         // TextPhysics will be initialized later when needed
         this.textPhysics = null;
         this.neuralNetworkManager = null;
+    }
+    
+    /**
+     * Deep merge two configuration objects
+     * @private
+     */
+    _mergeConfig(defaultConfig, customConfig) {
+        const result = { ...defaultConfig };
         
-        // Debug mode
-        this.debug = true;
+        for (const key in customConfig) {
+            if (typeof customConfig[key] === 'object' && 
+                customConfig[key] !== null && 
+                !Array.isArray(customConfig[key]) &&
+                defaultConfig.hasOwnProperty(key)) {
+                
+                result[key] = this._mergeConfig(defaultConfig[key], customConfig[key]);
+            } else {
+                result[key] = customConfig[key];
+            }
+        }
+        
+        return result;
     }
 
     _initializePhysics() {
@@ -81,7 +246,7 @@ export default class SceneManager {
     initNeuralNetwork() {
         if (!this.neuralNetworkManager) {
             console.log('Initializing neural network manager');
-            this.neuralNetworkManager = new NeuralNetworkManager(this.scene, this.camera);
+            this.neuralNetworkManager = new NeuralNetworkManager(this.scene, this.camera, this);
             this.neuralNetworkManager.initialize();
         }
         return this.neuralNetworkManager;
@@ -105,7 +270,7 @@ export default class SceneManager {
             }
         });
         
-        // Hide all buttons
+        // Hide all buttons except debug button
         this.buttonObjects.forEach(button => {
             if (!(button._props.text === 'Debug Camera')) {
                 button.visible = false;
@@ -123,9 +288,9 @@ export default class SceneManager {
         console.log('Switching back to card view');
         this.state.currentView = 'card';
         
-        // Hide neural network
-        if (this.neuralNetworkManager) {
-            this.neuralNetworkManager.hide();
+        // Hide neural network UI (note: the network group will be hidden after the camera transition)
+        if (this.neuralNetworkManager && this.neuralNetworkManager.ui.overlayContainer) {
+            this.neuralNetworkManager.ui.overlayContainer.style.display = 'none';
         }
         
         // Show all cards
@@ -210,16 +375,20 @@ export default class SceneManager {
     _initializeScene() {
         // Create scene
         this.scene = new THREE.Scene();
-        this.scene.background = new THREE.Color(0x2a1b3d);
+        this.scene.background = new THREE.Color(this.config.scene.background);
 
         // Create camera
         this.camera = new THREE.PerspectiveCamera(
-            75,
+            this.config.camera.fov,
             window.innerWidth / window.innerHeight,
-            0.1,
-            1000
+            this.config.camera.near,
+            this.config.camera.far
         );
-        this.camera.position.z = 5;
+        this.camera.position.set(
+            this.config.camera.position.x,
+            this.config.camera.position.y,
+            this.config.camera.position.z
+        );
 
         // Create renderer
         this.renderer = new THREE.WebGLRenderer({ 
@@ -345,7 +514,9 @@ export default class SceneManager {
             const intersectedButton = this._findParentObject(buttonIntersects[0].object);
             
             if (intersectedButton) {
-                console.log(`Button intersected: ${intersectedButton._props.text}`);
+                if (this.config.debug) {
+                    console.log(`Button intersected: ${intersectedButton._props.text}`);
+                }
                 
                 // Don't start drag events for buttons
                 return;
@@ -476,7 +647,7 @@ export default class SceneManager {
             const dragPosition = new THREE.Vector2(event.clientX, event.clientY);
             const distance = dragPosition.distanceTo(this.state.clickStartPosition);
             
-            if (distance > 5) {
+            if (distance > this.config.card.selection.moveThreshold) {
                 this.state.isClicking = false;
             }
         }
@@ -486,10 +657,13 @@ export default class SceneManager {
         // Calculate if this was a click
         const clickEndTime = Date.now();
         const clickDuration = clickEndTime - this.state.clickStartTime;
-        const isClick = this.state.isClicking && clickDuration < 300;
+        const isClick = this.state.isClicking && 
+                       clickDuration < this.config.card.selection.clickThreshold;
         
         if (isClick) {
-            console.log("Click detected");
+            if (this.config.debug) {
+                console.log("Click detected");
+            }
             
             // Update raycaster
             this._updateMousePosition(event);
@@ -646,7 +820,38 @@ export default class SceneManager {
      * @param {Object} config - Configuration for the card
      */
     addCard(texture, config = {}) {
-        const card = new InteractiveCard({ texture, ...config });
+        // Merge with default card config
+        const cardConfig = {
+            width: this.config.card.dimensions.width,
+            height: this.config.card.dimensions.height,
+            springPhysics: {
+                strength: this.config.card.physics.strength,
+                damping: this.config.card.physics.damping,
+                wiggleStrength: this.config.card.physics.wiggleStrength,
+                wiggleDamping: this.config.card.physics.wiggleDamping
+            },
+            dragBehavior: {
+                returnSpeed: this.config.card.dragging.returnSpeed,
+                dampingFactor: this.config.card.dragging.dampingFactor,
+                enabled: true
+            },
+            selectionBehavior: {
+                enabled: true,
+                clickThreshold: this.config.card.selection.clickThreshold,
+                moveThreshold: this.config.card.selection.moveThreshold
+            },
+            hoverBehavior: {
+                enabled: true
+            },
+            ...config,
+            texture
+        };
+        
+        const card = new InteractiveCard(cardConfig);
+        
+        // Reference to scene manager for animations
+        card.sceneManager = this;
+        
         return this.addObject(card);
     }
     
@@ -681,18 +886,18 @@ export default class SceneManager {
      * @return {ConfirmButton} The created button
      */
     addAnalyzeButton(config = {}) {
-        const defaultConfig = {
-            width: 1.5,
-            height: 0.5,
-            position: { x: 0, y: -2, z: 0.1 },
+        const buttonConfig = {
+            width: this.config.button.dimensions.analyzeWidth,
+            height: this.config.button.dimensions.analyzeHeight,
+            position: this.config.button.positions.analyze,
             text: 'Analyze Card',
             fontColor: '#ffffff',
-            activeColor: 0x4287f5,
-            inactiveColor: 0x787878
+            activeColor: this.config.button.colors.activeAnalyze,
+            inactiveColor: this.config.button.colors.inactiveAnalyze,
+            ...config
         };
         
-        const mergedConfig = { ...defaultConfig, ...config };
-        const button = new ConfirmButton(mergedConfig);
+        const button = new ConfirmButton(buttonConfig);
         
         // Add button to scene
         this.addObject(button);
@@ -718,16 +923,18 @@ export default class SceneManager {
      * Add a debug camera button that tests camera transitions
      */
     addDebugCameraButton() {
-        console.log("Adding debug camera button");
+        if (this.config.debug) {
+            console.log("Adding debug camera button");
+        }
         
         const button = new ConfirmButton({
-            width: 1.2,
-            height: 0.4,
-            position: { x: 2, y: 1.5, z: 0.1 },
+            width: this.config.button.dimensions.debugWidth,
+            height: this.config.button.dimensions.debugHeight,
+            position: this.config.button.positions.debug,
             text: 'Debug Camera',
             fontColor: '#ffffff',
-            activeColor: 0xff0000,
-            inactiveColor: 0xaa0000
+            activeColor: this.config.button.colors.activeDebug,
+            inactiveColor: this.config.button.colors.inactiveDebug
         });
         
         // Add button to scene
@@ -748,11 +955,19 @@ export default class SceneManager {
             if (toggle) {
                 // Return to original position
                 console.log('Moving camera back to original position');
-                this.camera.position.set(0, 0, 5);
+                this.camera.position.set(
+                    this.config.camera.position.x,
+                    this.config.camera.position.y,
+                    this.config.camera.position.z
+                );
             } else {
                 // Move to network view position
                 console.log('Moving camera to network view position');
-                this.camera.position.set(0, 0, 25);
+                this.camera.position.set(
+                    this.config.neuralNetwork.camera.position.x,
+                    this.config.neuralNetwork.camera.position.y,
+                    this.config.neuralNetwork.camera.position.z
+                );
             }
             
             toggle = !toggle;
@@ -774,5 +989,28 @@ export default class SceneManager {
         
         this.scene.remove(object);
         object.dispose();
+    }
+    
+    /**
+     * Update the configuration
+     * @param {Object} newConfig - New configuration values
+     */
+    updateConfig(newConfig) {
+        this.config = this._mergeConfig(this.config, newConfig);
+        
+        // Update camera position if not in network view
+        if (this.state.currentView !== 'network') {
+            this.camera.position.set(
+                this.config.camera.position.x,
+                this.config.camera.position.y,
+                this.config.camera.position.z
+            );
+        }
+        
+        // Other updates can be applied as needed
+        
+        if (this.config.debug) {
+            console.log("Configuration updated:", this.config);
+        }
     }
 }
