@@ -57,6 +57,9 @@ export default class ConfirmButton extends InteractiveObject {
         
         // Initialize interaction capabilities
         this._initializeInteraction();
+        
+        // Debug flag for tracing interaction events
+        this._debug = true;
     }
 
     _createButtonMesh() {
@@ -146,6 +149,10 @@ export default class ConfirmButton extends InteractiveObject {
     setActive(isActive) {
         if (this._buttonState.isActive === isActive) return;
         
+        if (this._debug) {
+            console.log(`Button '${this._props.text}' active state changed: ${isActive}`);
+        }
+        
         this._buttonState.isActive = isActive;
         
         // Update button color
@@ -168,6 +175,10 @@ export default class ConfirmButton extends InteractiveObject {
 
     // Extend event handlers from base class
     onPointerEnter(event) {
+        if (this._debug) {
+            console.log(`Button '${this._props.text}' onPointerEnter, active: ${this._buttonState.isActive}`);
+        }
+        
         // Only process if button is active
         if (!this._buttonState.isActive) return;
         
@@ -179,6 +190,10 @@ export default class ConfirmButton extends InteractiveObject {
     }
 
     onPointerLeave(event) {
+        if (this._debug) {
+            console.log(`Button '${this._props.text}' onPointerLeave, active: ${this._buttonState.isActive}`);
+        }
+        
         super.onPointerLeave(event);
         
         if (!this._state.isHovering) {
@@ -186,10 +201,44 @@ export default class ConfirmButton extends InteractiveObject {
         }
     }
 
+    // Direct click handler - bypass the drag event chain if needed
+    onDirectClick(event) {
+        if (this._debug) {
+            console.log(`Button '${this._props.text}' onDirectClick, active: ${this._buttonState.isActive}`);
+        }
+        
+        // Only allow click if button is active
+        if (!this._buttonState.isActive) {
+            console.log(`Button '${this._props.text}' ignoring click because it's inactive`);
+            return;
+        }
+        
+        // Visual feedback
+        this._buttonState.targetScale = 1.2;
+        setTimeout(() => {
+            this._buttonState.targetScale = 1.0;
+        }, 100);
+        
+        // Call the onClick callback directly
+        if (this._state.onClick) {
+            console.log(`Button '${this._props.text}' executing onClick callback`);
+            this._state.onClick(this);
+        } else {
+            console.warn(`Button '${this._props.text}' has no onClick callback set`);
+        }
+    }
+
     // Override toggleSelected for button-specific behavior
     toggleSelected() {
         // Only allow selection if button is active
-        if (!this._buttonState.isActive) return;
+        if (!this._buttonState.isActive) {
+            console.log(`Button '${this._props.text}' ignoring toggleSelected because it's inactive`);
+            return;
+        }
+        
+        if (this._debug) {
+            console.log(`Button '${this._props.text}' toggleSelected`);
+        }
         
         super.toggleSelected();
         
@@ -200,9 +249,67 @@ export default class ConfirmButton extends InteractiveObject {
             
             // Dispatch confirm event if callback is set
             if (this._state.onClick) {
+                console.log(`Button '${this._props.text}' executing onClick callback from toggleSelected`);
+                this._state.onClick(this);
+            } else {
+                console.warn(`Button '${this._props.text}' has no onClick callback set`);
+            }
+        }
+    }
+
+    // Override the _onClick method from InteractiveObject to add debugging
+    _onClick(event) {
+        if (this._debug) {
+            console.log(`Button '${this._props.text}' _onClick internal method`);
+        }
+        
+        if (this.config.selectionBehavior.enabled) {
+            this.toggleSelected();
+        } else {
+            console.log(`Button '${this._props.text}' selection behavior is disabled`);
+            
+            // Call onClick directly even if selection behavior is disabled
+            if (this._state.onClick) {
+                console.log(`Button '${this._props.text}' executing onClick callback from _onClick`);
                 this._state.onClick(this);
             }
         }
+    }
+    
+    // Override onDragStart to add debugging
+    onDragStart(event) {
+        if (this._debug) {
+            console.log(`Button '${this._props.text}' onDragStart`);
+        }
+        
+        super.onDragStart(event);
+    }
+    
+    // Override onDragEnd to add debugging and fix click detection
+    onDragEnd(event) {
+        if (this._debug) {
+            console.log(`Button '${this._props.text}' onDragEnd`);
+        }
+        
+        // Skip normal drag behavior but still check for clicks
+        if (this.config.selectionBehavior.enabled) {
+            const dragEndTime = Date.now();
+            const dragDuration = dragEndTime - this._state.dragStartTime;
+            
+            const dragEndPosition = new THREE.Vector2(event.clientX, event.clientY);
+            const distance = this._state.dragStartPosition ? 
+                dragEndPosition.distanceTo(this._state.dragStartPosition) : 0;
+            
+            console.log(`Button drag duration: ${dragDuration}ms, distance: ${distance}px`);
+            
+            // If drag was short and movement was minimal, consider it a click
+            if (dragDuration < this.config.selectionBehavior.clickThreshold && 
+                distance < this.config.selectionBehavior.moveThreshold) {
+                this._onClick(event);
+            }
+        }
+        
+        this._state.isDragging = false;
     }
 
     // Override update to handle button-specific animations

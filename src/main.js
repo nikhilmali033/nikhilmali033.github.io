@@ -1,6 +1,5 @@
 import * as THREE from 'three';
 import SceneManager from './SceneManager';
-import ConfirmButton from './ConfirmButton';
 
 let sceneManager;
 let animationFrameId;
@@ -11,12 +10,11 @@ function init() {
 
     // Create scene manager with physics
     sceneManager = new SceneManager(container);
-    sceneManager._initializePhysics();
     
-    // Initialize text physics
+    // Initialize text physics for animations
     sceneManager.initTextPhysics();
     
-    // Load card
+    // Load card texture
     const textureLoader = new THREE.TextureLoader();
     textureLoader.load('./textures/joker.png', (texture) => {
         // Add card with reference to scene manager
@@ -47,13 +45,20 @@ function init() {
         // Ensure the card has a reference to the scene manager
         card.sceneManager = sceneManager;
         
-        // Set initial text
-        sceneManager.animateText("Hello World");
+        // Add analyze button for neural network
+        sceneManager.addAnalyzeButton({
+            position: { x: 0, y: -2, z: 0.1 }
+        });
+        
+        // Add debug camera button
+        sceneManager.addDebugCameraButton();
+        
+        // Set initial welcome text
+        sceneManager.animateText("Select a Card");
         
         // Start animation loop
         animate();
     });
-    
 }
 
 function animate() {
@@ -75,6 +80,5 @@ document.addEventListener('DOMContentLoaded', init);
 
 // Cleanup on page unload
 window.addEventListener('unload', cleanup);
-
 
 export { init, cleanup };

@@ -3,7 +3,7 @@ name: Deploy to GitHub Pages
 
 on:
   push:
-    branches: [ main ]  # Changed to deploy from main branch
+    branches: [ gh-pages-dev ]  # Changed to deploy from main branch
   workflow_dispatch:    # Allows manual triggering
 
 jobs:

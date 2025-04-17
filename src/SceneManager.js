@@ -1,7 +1,9 @@
 import * as THREE from 'three';
 import InteractiveCard from './InteractiveCard';
+import ConfirmButton from './ConfirmButton';
 import * as CANNON from 'cannon';
 import TextPhysics from './TextPhysics';
+import NeuralNetworkManager from './NeuralNetworkManager';
 
 /**
  * Manages the 3D scene and interaction between objects
@@ -10,6 +12,7 @@ export default class SceneManager {
     constructor(container) {
         this.container = container;
         this.interactiveObjects = new Set();
+        this.buttonObjects = new Set(); // Dedicated tracking for buttons
         this.raycaster = new THREE.Raycaster();
         this.mouse = new THREE.Vector2();
         this.draggedObject = null;
@@ -17,18 +20,26 @@ export default class SceneManager {
         // Global state management
         this.state = {
             selectedCards: new Set(),
-            selectionListeners: new Set()
+            selectionListeners: new Set(),
+            currentView: 'card', // 'card' or 'network'
+            // Track click state
+            isClicking: false,
+            clickStartTime: 0,
+            clickStartPosition: new THREE.Vector2()
         };
         
         this._initializeScene();
         this._setupLighting();
-        this._initializePhysics(); // Add this line
+        this._initializePhysics();
         this._setupEventListeners();
         
         // TextPhysics will be initialized later when needed
         this.textPhysics = null;
+        this.neuralNetworkManager = null;
+        
+        // Debug mode
+        this.debug = true;
     }
-
 
     _initializePhysics() {
         // Initialize physics world
@@ -64,7 +75,73 @@ export default class SceneManager {
         return true;
     }
     
-    // Modify the update method to include physics update
+    /**
+     * Initialize the neural network manager
+     */
+    initNeuralNetwork() {
+        if (!this.neuralNetworkManager) {
+            console.log('Initializing neural network manager');
+            this.neuralNetworkManager = new NeuralNetworkManager(this.scene, this.camera);
+            this.neuralNetworkManager.initialize();
+        }
+        return this.neuralNetworkManager;
+    }
+    
+    /**
+     * Switch to the neural network view
+     */
+    showNeuralNetwork() {
+        if (!this.neuralNetworkManager) {
+            this.initNeuralNetwork();
+        }
+        
+        console.log('Switching to neural network view');
+        this.state.currentView = 'network';
+        
+        // Hide all cards
+        this.interactiveObjects.forEach(obj => {
+            if (obj instanceof InteractiveCard) {
+                obj.visible = false;
+            }
+        });
+        
+        // Hide all buttons
+        this.buttonObjects.forEach(button => {
+            if (!(button._props.text === 'Debug Camera')) {
+                button.visible = false;
+            }
+        });
+        
+        // Show neural network
+        this.neuralNetworkManager.show();
+    }
+    
+    /**
+     * Switch back to the card view
+     */
+    showCardView() {
+        console.log('Switching back to card view');
+        this.state.currentView = 'card';
+        
+        // Hide neural network
+        if (this.neuralNetworkManager) {
+            this.neuralNetworkManager.hide();
+        }
+        
+        // Show all cards
+        this.interactiveObjects.forEach(obj => {
+            if (obj instanceof InteractiveCard) {
+                obj.visible = true;
+            }
+        });
+        
+        // Show all buttons
+        this.buttonObjects.forEach(button => {
+            button.visible = true;
+        });
+    }
+    
+    // Update method including neural network update
     update(deltaTime) {
         // Step the physics world
         const now = performance.now();
@@ -78,6 +155,12 @@ export default class SceneManager {
             this.textPhysics.update(deltaTime);
         }
         
+        // Update neural network animations if initialized
+        // Note: We update animations regardless of current view to ensure camera transitions complete
+        if (this.neuralNetworkManager) {
+            this.neuralNetworkManager.updateAnimations();
+        }
+        
         // Update all objects
         this.interactiveObjects.forEach(object => object.update(deltaTime));
         
@@ -85,7 +168,7 @@ export default class SceneManager {
         this.renderer.render(this.scene, this.camera);
     }
     
-    // Update the dispose method to clean up physics
+    // Clean up resources
     dispose() {
         // Clean up event listeners
         window.removeEventListener('resize', this._onWindowResize);
@@ -100,11 +183,20 @@ export default class SceneManager {
             this.textPhysics = null;
         }
         
+        // Clean up neural network manager if initialized
+        if (this.neuralNetworkManager) {
+            this.neuralNetworkManager.dispose();
+            this.neuralNetworkManager = null;
+        }
+        
         // Dispose of interactive objects
         this.interactiveObjects.forEach(object => {
             object.dispose();
         });
         this.interactiveObjects.clear();
+        
+        // Dispose of button objects
+        this.buttonObjects.clear();
         
         // Dispose of renderer
         this.renderer.dispose();
@@ -208,6 +300,15 @@ export default class SceneManager {
     }
 
     _getInteractiveMeshes() {
+        // Don't process interactions when in network view (except for the debug button)
+        if (this.state.currentView === 'network') {
+            // Only include the debug button in network view
+            return Array.from(this.buttonObjects)
+                .filter(button => button._props.text === 'Debug Camera')
+                .map(button => button.interactiveMesh)
+                .filter(mesh => mesh != null);
+        }
+        
         // Collect all interactive meshes from all interactive objects
         return Array.from(this.interactiveObjects)
             .map(obj => obj.interactiveMesh)
@@ -221,15 +322,45 @@ export default class SceneManager {
     _onPointerDown(event) {
         this._updateMousePosition(event);
         
+        // Set click tracking state
+        this.state.isClicking = true;
+        this.state.clickStartTime = Date.now();
+        this.state.clickStartPosition = new THREE.Vector2(event.clientX, event.clientY);
+        
         // Update raycaster
         this.raycaster.setFromCamera(this.mouse, this.camera);
         
-        // Get all intersected objects
+        // Enable all raycasting layers
+        this.raycaster.layers.set(0); // Default layer
+        this.raycaster.layers.enable(1); // Interactive objects layer
+        
+        // Special handling for buttons - check them first
+        const buttonMeshes = Array.from(this.buttonObjects)
+            .map(obj => obj.interactiveMesh)
+            .filter(mesh => mesh != null && mesh.visible);
+            
+        const buttonIntersects = this.raycaster.intersectObjects(buttonMeshes);
+        
+        if (buttonIntersects.length > 0) {
+            const intersectedButton = this._findParentObject(buttonIntersects[0].object);
+            
+            if (intersectedButton) {
+                console.log(`Button intersected: ${intersectedButton._props.text}`);
+                
+                // Don't start drag events for buttons
+                return;
+            }
+        }
+        
+        // Regular interactive object handling
+        if (this.state.currentView === 'network') return;
+        
+        // Get all intersected objects (excluding buttons)
         const intersects = this.raycaster.intersectObjects(this._getInteractiveMeshes());
 
         if (intersects.length > 0) {
             const intersectedObject = this._findParentObject(intersects[0].object);
-            if (intersectedObject) {
+            if (intersectedObject && !(intersectedObject instanceof ConfirmButton)) {
                 this.draggedObject = intersectedObject;
                 
                 // Create event object with necessary data
@@ -252,9 +383,20 @@ export default class SceneManager {
         const previousX = this.mouse.x;
         this._updateMousePosition(event);
         
+        // Skip all other processing in network view except for the debug button
+        if (this.state.currentView === 'network' && 
+            !this.raycaster.intersectObjects(
+                Array.from(this.buttonObjects)
+                    .filter(button => button._props.text === 'Debug Camera')
+                    .map(button => button.interactiveMesh)
+            ).length) {
+            return;
+        }
+        
         // Update raycaster
         this.raycaster.setFromCamera(this.mouse, this.camera);
         
+        // If dragging, move the object
         if (this.draggedObject) {
             // Handle drag if the object supports dragging
             if (this.draggedObject.config.dragBehavior.enabled) {
@@ -278,18 +420,41 @@ export default class SceneManager {
                 }
             }
         } else {
-            // Handle hover
-            const intersects = this.raycaster.intersectObjects(this._getInteractiveMeshes());
+            // Special handling for buttons - check them first
+            const buttonMeshes = Array.from(this.buttonObjects)
+                .map(obj => obj.interactiveMesh)
+                .filter(mesh => mesh != null && mesh.visible);
+                
+            const buttonIntersects = this.raycaster.intersectObjects(buttonMeshes);
             
-            // Create event object
+            // Create event object for buttons
             const eventData = {
                 clientX: event.clientX,
                 clientY: event.clientY,
                 camera: this.camera
             };
+            
+            // Update hover states for buttons
+            this.buttonObjects.forEach(button => {
+                const isIntersected = buttonIntersects.some(
+                    intersect => this._findParentObject(intersect.object) === button
+                );
+                
+                if (isIntersected && !button._state.isHovering) {
+                    button.onPointerEnter(eventData);
+                } else if (!isIntersected && button._state.isHovering) {
+                    button.onPointerLeave(eventData);
+                }
+            });
+            
+            // Handle hover for regular objects
+            const intersects = this.raycaster.intersectObjects(this._getInteractiveMeshes());
 
             // Update hover states for all objects
             this.interactiveObjects.forEach(obj => {
+                // Skip buttons (handled separately)
+                if (obj instanceof ConfirmButton) return;
+                
                 const isIntersected = intersects.some(
                     intersect => this._findParentObject(intersect.object) === obj
                 );
@@ -305,9 +470,65 @@ export default class SceneManager {
                 }
             });
         }
+        
+        // If we've moved too far, we're not clicking anymore
+        if (this.state.isClicking) {
+            const dragPosition = new THREE.Vector2(event.clientX, event.clientY);
+            const distance = dragPosition.distanceTo(this.state.clickStartPosition);
+            
+            if (distance > 5) {
+                this.state.isClicking = false;
+            }
+        }
     }
 
     _onPointerUp(event) {
+        // Calculate if this was a click
+        const clickEndTime = Date.now();
+        const clickDuration = clickEndTime - this.state.clickStartTime;
+        const isClick = this.state.isClicking && clickDuration < 300;
+        
+        if (isClick) {
+            console.log("Click detected");
+            
+            // Update raycaster
+            this._updateMousePosition(event);
+            this.raycaster.setFromCamera(this.mouse, this.camera);
+            
+            // Check for button clicks first
+            const buttonMeshes = Array.from(this.buttonObjects)
+                .map(obj => obj.interactiveMesh)
+                .filter(mesh => mesh != null && mesh.visible);
+                
+            const buttonIntersects = this.raycaster.intersectObjects(buttonMeshes);
+            
+            if (buttonIntersects.length > 0) {
+                const clickedButton = this._findParentObject(buttonIntersects[0].object);
+                
+                if (clickedButton) {
+                    console.log(`Button clicked: ${clickedButton._props.text}`);
+                    
+                    // Call the direct click method on the button
+                    if (typeof clickedButton.onDirectClick === 'function') {
+                        clickedButton.onDirectClick(event);
+                    } else {
+                        console.warn("Button does not have onDirectClick method");
+                    }
+                    
+                    // Skip other processing
+                    this.state.isClicking = false;
+                    return;
+                }
+            }
+        }
+        
+        // Reset clicking state
+        this.state.isClicking = false;
+        
+        // Skip all other processing in network view
+        if (this.state.currentView === 'network') return;
+        
+        // Handle drag end
         if (this.draggedObject) {
             this.draggedObject.onDragEnd({
                 clientX: event.clientX,
@@ -401,6 +622,12 @@ export default class SceneManager {
      */
     addObject(object) {
         this.interactiveObjects.add(object);
+        
+        // Track buttons separately
+        if (object instanceof ConfirmButton) {
+            this.buttonObjects.add(object);
+        }
+        
         this.scene.add(object);
         
         // Set up selection change tracking
@@ -447,6 +674,92 @@ export default class SceneManager {
         
         return buttonObject;
     }
+    
+    /**
+     * Create and add an analyze button for neural network visualization
+     * @param {Object} config - Button configuration
+     * @return {ConfirmButton} The created button
+     */
+    addAnalyzeButton(config = {}) {
+        const defaultConfig = {
+            width: 1.5,
+            height: 0.5,
+            position: { x: 0, y: -2, z: 0.1 },
+            text: 'Analyze Card',
+            fontColor: '#ffffff',
+            activeColor: 0x4287f5,
+            inactiveColor: 0x787878
+        };
+        
+        const mergedConfig = { ...defaultConfig, ...config };
+        const button = new ConfirmButton(mergedConfig);
+        
+        // Add button to scene
+        this.addObject(button);
+        
+        // Set inactive by default
+        button.setActive(false);
+        
+        // Set up click handler to show neural network
+        button.setCallback('onClick', () => {
+            console.log('Analyze button clicked!');
+            this.showNeuralNetwork();
+        });
+        
+        // Add selection listener to update button state
+        this.addSelectionListener((selectedCards) => {
+            button.setActive(selectedCards.length > 0);
+        });
+        
+        return button;
+    }
+    
+    /**
+     * Add a debug camera button that tests camera transitions
+     */
+    addDebugCameraButton() {
+        console.log("Adding debug camera button");
+        
+        const button = new ConfirmButton({
+            width: 1.2,
+            height: 0.4,
+            position: { x: 2, y: 1.5, z: 0.1 },
+            text: 'Debug Camera',
+            fontColor: '#ffffff',
+            activeColor: 0xff0000,
+            inactiveColor: 0xaa0000
+        });
+        
+        // Add button to scene
+        this.addObject(button);
+        
+        // Always active
+        button.setActive(true);
+        
+        // Set up click handler
+        let toggle = false;
+        button.setCallback('onClick', () => {
+            console.log('Debug camera button clicked!');
+            
+            if (!this.neuralNetworkManager) {
+                this.initNeuralNetwork();
+            }
+            
+            if (toggle) {
+                // Return to original position
+                console.log('Moving camera back to original position');
+                this.camera.position.set(0, 0, 5);
+            } else {
+                // Move to network view position
+                console.log('Moving camera to network view position');
+                this.camera.position.set(0, 0, 25);
+            }
+            
+            toggle = !toggle;
+        });
+        
+        return button;
+    }
 
     /**
      * Remove an object from the scene
@@ -454,6 +767,11 @@ export default class SceneManager {
      */
     removeObject(object) {
         this.interactiveObjects.delete(object);
+        
+        if (object instanceof ConfirmButton) {
+            this.buttonObjects.delete(object);
+        }
+        
         this.scene.remove(object);
         object.dispose();
     }
