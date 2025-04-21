@@ -9,6 +9,27 @@ const customConfig = {
     // Enable debug mode
     debug: true,
     
+    // Camera settings with rotation
+    camera: {
+        fov: 75,
+        near: 0.1,
+        far: 1000,
+        position: { x: 0, y: 0, z: 5 },
+        rotation: { x: 0, y: 0, z: 0 },
+        // Or use lookAt instead of rotation
+        lookAt: { x: 0, y: 0, z: 0 },
+        transitionDuration: 1000 // ms
+    },
+
+    scene: {
+        background: 0x000033, // Base color
+        backgroundTransition: {
+            enabled: true,
+            colors: [0x000033, 0x330033, 0x003333], // Deep blue, purple, teal
+            transitionSpeed: 0.005 // Very slow transition
+        }
+    },
+    
     // Customize card physics
     card: {
         physics: {
@@ -22,9 +43,14 @@ const customConfig = {
     
     // Adjust neural network settings
     neuralNetwork: {
-        // Faster camera transition
+        // Camera settings with rotation
         camera: {
-            transitionDuration: 1200
+            position: { x: -10, y: 2, z: 15 },
+            // Example 1: Using rotation
+            rotation: { x: 10, y: 0.2, z: 0 },
+            // Example 2: Or use lookAt (will override rotation if both are set)
+            lookAt: { x: 0, y: 0, z: 0 },
+            transitionDuration: 1200 // ms
         },
         // More connections for better visualization
         animation: {
@@ -59,25 +85,52 @@ function init() {
         // Set initial welcome text
         sceneManager.animateText("Select a Card");
         
-        // Example of runtime configuration update
-        // Uncomment to test changing parameters at runtime
-        /*
+        // Example of runtime configuration update with camera changes
         setTimeout(() => {
+            console.log("Updating configuration with camera rotation...");
             sceneManager.updateConfig({
-                card: {
-                    physics: {
-                        wiggleStrength: 0.8,  // Make wiggle even more pronounced
-                    }
+                camera: {
+                    // Slight tilt to make the scene more dynamic
+                    rotation: { x: 0.05, y: -0.1, z: 0.03 }
                 },
                 neuralNetwork: {
+                    camera: {
+                        position: { x: 8, y: 3, z: 20 },
+                        rotation: { x: -0.1, y: 0.3, z: 0.05 },
+                        transitionDuration: 1500
+                    },
                     animation: {
                         arcHeight: 0.8,      // Higher arcs for data cubes
                         duration: 800        // Faster animations
                     }
                 }
             });
+            
+            // Demonstrate camera transition directly
+            setTimeout(() => {
+                if (sceneManager.state.currentView === 'card') {
+                    console.log("Demonstrating smooth camera transition...");
+                    // Example of a camera move with rotation in the card view
+                    sceneManager.transitionCamera({
+                        position: { x: -2, y: 1, z: 6 },
+                        rotation: { x: 0.1, y: -0.2, z: 0 },
+                        transitionDuration: 2000
+                    }, () => {
+                        console.log("Camera transition complete");
+                        
+                        // Return to original position after 3 seconds
+                        setTimeout(() => {
+                            sceneManager.transitionCamera({
+                                position: sceneManager.config.camera.position,
+                                rotation: sceneManager.config.camera.rotation,
+                                lookAt: sceneManager.config.camera.lookAt,
+                                transitionDuration: 2000
+                            });
+                        }, 3000);
+                    });
+                }
+            }, 2000);
         }, 5000);
-        */
         
         // Start animation loop
         animate();

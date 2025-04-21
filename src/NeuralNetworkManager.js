@@ -30,6 +30,34 @@ export default class NeuralNetworkManager {
             original: camera.position.clone()
         };
         
+        // Camera rotations/lookAt
+        this.cameraSettings = {
+            network: {
+                position: new THREE.Vector3(
+                    this.config.camera.position.x,
+                    this.config.camera.position.y,
+                    this.config.camera.position.z
+                ),
+                rotation: this.config.camera.rotation ? 
+                    new THREE.Euler(
+                        this.config.camera.rotation.x,
+                        this.config.camera.rotation.y,
+                        this.config.camera.rotation.z
+                    ) : null,
+                lookAt: this.config.camera.lookAt ? 
+                    new THREE.Vector3(
+                        this.config.camera.lookAt.x,
+                        this.config.camera.lookAt.y,
+                        this.config.camera.lookAt.z
+                    ) : null
+            },
+            original: {
+                position: camera.position.clone(),
+                rotation: camera.rotation.clone(),
+                quaternion: camera.quaternion.clone()
+            }
+        };
+        
         // Reference to DOM elements (will be set later)
         this.ui = {
             overlayContainer: null,
@@ -73,16 +101,28 @@ export default class NeuralNetworkManager {
     show() {
         console.log("Showing neural network visualization");
         
-        // Store original camera position
-        this.cameraPositions.original = this.camera.position.clone();
-        console.log("Original camera position:", this.cameraPositions.original);
-        console.log("Target camera position:", this.cameraPositions.network);
+        // Store original camera settings
+        this.cameraSettings.original = {
+            position: this.camera.position.clone(),
+            quaternion: this.camera.quaternion.clone(),
+            rotation: this.camera.rotation.clone()
+        };
+        
+        console.log("Original camera position:", this.cameraSettings.original.position);
+        console.log("Target camera position:", this.cameraSettings.network.position);
         
         // Make network group visible immediately
         this.networkGroup.visible = true;
         
-        // Start camera transition
-        this._transitionCamera(this.cameraPositions.network, () => {
+        // Start camera transition using SceneManager's transitionCamera method
+        const cameraParams = {
+            position: this.cameraSettings.network.position,
+            rotation: this.cameraSettings.network.rotation,
+            lookAt: this.cameraSettings.network.lookAt,
+            transitionDuration: this.config.camera.transitionDuration
+        };
+        
+        this.sceneManager.transitionCamera(cameraParams, () => {
             // Show UI overlay after camera transition completes
             if (this.ui.overlayContainer) {
                 console.log("Showing UI overlay");
@@ -104,8 +144,16 @@ export default class NeuralNetworkManager {
             this.ui.overlayContainer.style.display = 'none';
         }
         
-        // Transition camera back to original position
-        this._transitionCamera(this.cameraPositions.original, () => {
+        // Transition camera back to original position using SceneManager's transitionCamera method
+        const cameraParams = {
+            position: this.cameraSettings.original.position,
+            // Use stored rotation or quaternion
+            rotation: this.sceneManager.config.camera.rotation,
+            lookAt: this.sceneManager.config.camera.lookAt,
+            transitionDuration: this.config.camera.transitionDuration
+        };
+        
+        this.sceneManager.transitionCamera(cameraParams, () => {
             // Hide network group after camera transition completes
             this.networkGroup.visible = false;
             
@@ -117,64 +165,6 @@ export default class NeuralNetworkManager {
         });
         
         this.isActive = false;
-    }
-    
-    /**
-     * Transition the camera to a new position
-     * @param {THREE.Vector3} targetPosition - Target camera position
-     * @param {Function} callback - Function to call when transition completes
-     */
-    _transitionCamera(targetPosition, callback) {
-        // Set up the transition state
-        this.cameraTransition = {
-            startPosition: this.camera.position.clone(),
-            targetPosition: targetPosition.clone(), // Make sure to clone the target
-            startTime: Date.now(),
-            duration: this.config.camera.transitionDuration, // ms
-            callback: callback,
-            isActive: true
-        };
-        
-        console.log("Starting camera transition", {
-            from: this.cameraTransition.startPosition,
-            to: this.cameraTransition.targetPosition,
-            duration: this.cameraTransition.duration
-        });
-    }
-    
-    /**
-     * Update camera transition (called from the main animation loop)
-     */
-    updateCameraTransition() {
-        if (!this.cameraTransition || !this.cameraTransition.isActive) return;
-        
-        const elapsed = Date.now() - this.cameraTransition.startTime;
-        const progress = Math.min(elapsed / this.cameraTransition.duration, 1);
-        
-        // Use easing function for smooth transition
-        const eased = this._easeInOutCubic(progress);
-        
-        // Interpolate camera position
-        this.camera.position.lerpVectors(
-            this.cameraTransition.startPosition, 
-            this.cameraTransition.targetPosition, 
-            eased
-        );
-        
-        // Log for debugging
-        if (progress % 0.1 < 0.01) {
-            console.log(`Camera transition progress: ${Math.round(progress * 100)}%`, this.camera.position);
-        }
-        
-        // Check if transition is complete
-        if (progress >= 1) {
-            console.log("Camera transition complete", this.camera.position);
-            this.cameraTransition.isActive = false;
-            
-            if (this.cameraTransition.callback) {
-                this.cameraTransition.callback();
-            }
-        }
     }
     
     /**
@@ -979,10 +969,7 @@ export default class NeuralNetworkManager {
      * Update animations
      */
     updateAnimations() {
-        if (!this.isActive && !this.cameraTransition?.isActive) return;
-        
-        // Update camera transitions
-        this.updateCameraTransition();
+        if (!this.isActive) return;
         
         // Update data cube animations
         const currentTime = Date.now();

@@ -10,12 +10,18 @@ import NeuralNetworkManager from './NeuralNetworkManager';
  */
 export default class SceneManager {
     constructor(container, customConfig = {}) {
+        
         this.container = container;
         this.interactiveObjects = new Set();
         this.buttonObjects = new Set(); // Dedicated tracking for buttons
         this.raycaster = new THREE.Raycaster();
         this.mouse = new THREE.Vector2();
         this.draggedObject = null;
+        this.backgroundTransitionState = {
+            currentColorIndex: 0,
+            nextColorIndex: 1,
+            transitionProgress: 0
+        };
         
         // Default configuration
         this.defaultConfig = {
@@ -27,12 +33,26 @@ export default class SceneManager {
                 fov: 75,
                 near: 0.1,
                 far: 1000,
-                position: { x: 0, y: 0, z: 5 }
+                position: { x: 0, y: 0, z: 5 },
+                rotation: { x: 0, y: 0, z: 0 },
+                lookAt: { x: 0, y: 0, z: 0 },
+                transitionDuration: 1000 // ms
             },
-            
+                    
             // Scene settings
             scene: {
-                background: 0x2a1b3d
+                background: 0x2a1b3d,
+                // Background color transition
+                backgroundTransition: {
+                    enabled: false,
+                    colors: [
+                        0x2a1b3d, // Default purple
+                        0x1a3b5c, // Deep blue
+                        0x3b1a2e  // Dark maroon
+                    ],
+                    transitionSpeed: 0.5, // Speed factor, lower is slower
+                    transitionMethod: 'rgb' // 'rgb' or 'hsl'
+                }
             },
             
             // Card settings
@@ -74,7 +94,7 @@ export default class SceneManager {
                     debugHeight: 0.4
                 },
                 positions: {
-                    analyze: { x: 0, y: -2, z: 0.1 },
+                    analyze: { x: 2, y: -2, z: 0.1 },
                     debug: { x: 2, y: 1.5, z: 0.1 }
                 },
                 colors: {
@@ -96,6 +116,8 @@ export default class SceneManager {
                 // Camera settings
                 camera: {
                     position: { x: 0, y: 0, z: 25 },
+                    rotation: { x: 0, y: 0, z: 0 },
+                    lookAt: { x: 0, y: 0, z: 0 },
                     transitionDuration: 1500 // ms
                 },
                 
@@ -171,7 +193,17 @@ export default class SceneManager {
             // Track click state
             isClicking: false,
             clickStartTime: 0,
-            clickStartPosition: new THREE.Vector2()
+            clickStartPosition: new THREE.Vector2(),
+            // Camera transition
+            cameraTransition: null,
+            // Background color transition
+            backgroundTransition: {
+                startTime: Date.now(),
+                currentColorIndex: 0,
+                nextColorIndex: 1,
+                progress: 0,
+                currentColor: new THREE.Color(this.config.scene.background)
+            }
         };
         
         this._initializeScene();
@@ -204,6 +236,36 @@ export default class SceneManager {
         }
         
         return result;
+    }
+
+    updateBackgroundColor(deltaTime) {
+        if (!this.config.scene.backgroundTransition.enabled) return;
+        
+        const transition = this.config.scene.backgroundTransition;
+        const colors = transition.colors;
+        
+        // Update transition progress
+        this.backgroundTransitionState.transitionProgress += 
+            transition.transitionSpeed * deltaTime * 60; // Normalize for deltaTime
+        
+        if (this.backgroundTransitionState.transitionProgress >= 1) {
+            // Move to next color
+            this.backgroundTransitionState.currentColorIndex = 
+                (this.backgroundTransitionState.currentColorIndex + 1) % colors.length;
+            this.backgroundTransitionState.nextColorIndex = 
+                (this.backgroundTransitionState.currentColorIndex + 1) % colors.length;
+            this.backgroundTransitionState.transitionProgress = 0;
+        }
+        
+        // Interpolate between current and next color
+        const currentColor = new THREE.Color(colors[this.backgroundTransitionState.currentColorIndex]);
+        const nextColor = new THREE.Color(colors[this.backgroundTransitionState.nextColorIndex]);
+        
+        const interpolatedColor = new THREE.Color();
+        interpolatedColor.copy(currentColor).lerp(nextColor, this.backgroundTransitionState.transitionProgress);
+        
+        // Apply the interpolated color
+        this.scene.background = interpolatedColor;
     }
 
     _initializePhysics() {
@@ -306,6 +368,199 @@ export default class SceneManager {
         });
     }
     
+    /**
+     * Update background color based on the transition configuration
+     * @private
+     */
+    _updateBackgroundColor(deltaTime) {
+        const bgConfig = this.config.scene.backgroundTransition;
+        if (!bgConfig.enabled || bgConfig.colors.length < 2) return;
+        
+        // Get the relevant colors for current transition
+        const colors = bgConfig.colors;
+        const bgState = this.state.backgroundTransition;
+        
+        // Update transition progress based on time and speed
+        const elapsedTime = (Date.now() - bgState.startTime) / 1000; // Convert to seconds
+        bgState.progress = (elapsedTime * bgConfig.transitionSpeed) % 1;
+        
+        // Check if we need to move to the next color pair
+        if (bgState.progress < this.state.backgroundTransition.lastProgress) {
+            bgState.currentColorIndex = (bgState.currentColorIndex + 1) % colors.length;
+            bgState.nextColorIndex = (bgState.currentColorIndex + 1) % colors.length;
+        }
+        bgState.lastProgress = bgState.progress;
+        
+        // Get the current and next colors
+        const currentColor = new THREE.Color(colors[bgState.currentColorIndex]);
+        const nextColor = new THREE.Color(colors[bgState.nextColorIndex]);
+        
+        // Different transition methods
+        if (bgConfig.transitionMethod === 'hsl') {
+            // HSL interpolation (tends to be more pleasing visually)
+            const currentHSL = { h: 0, s: 0, l: 0 };
+            const nextHSL = { h: 0, s: 0, l: 0 };
+            
+            currentColor.getHSL(currentHSL);
+            nextColor.getHSL(nextHSL);
+            
+            // Calculate hue the short way around the color wheel
+            let hue;
+            const hueDiff = nextHSL.h - currentHSL.h;
+            if (Math.abs(hueDiff) > 0.5) {
+                // Wrap around the other way
+                if (hueDiff > 0) {
+                    hue = currentHSL.h + (hueDiff - 1) * bgState.progress;
+                    if (hue < 0) hue += 1;
+                } else {
+                    hue = currentHSL.h + (hueDiff + 1) * bgState.progress;
+                    if (hue > 1) hue -= 1;
+                }
+            } else {
+                // Standard interpolation
+                hue = currentHSL.h + hueDiff * bgState.progress;
+            }
+            
+            // Linear interpolation for saturation and lightness
+            const sat = currentHSL.s + (nextHSL.s - currentHSL.s) * bgState.progress;
+            const light = currentHSL.l + (nextHSL.l - currentHSL.l) * bgState.progress;
+            
+            // Apply the new color
+            bgState.currentColor.setHSL(hue, sat, light);
+        } else {
+            // RGB interpolation (simpler, more predictable)
+            bgState.currentColor.copy(currentColor).lerp(nextColor, bgState.progress);
+        }
+        
+        // Apply the color to the scene background
+        this.scene.background.copy(bgState.currentColor);
+    }
+    
+    /**
+     * Transition the camera to a new position and rotation
+     * @param {Object} cameraParams - Camera parameters including position, rotation, lookAt
+     * @param {Function} callback - Function to call when transition completes
+     */
+    transitionCamera(cameraParams, callback) {
+        // Store current camera state
+        const startPosition = this.camera.position.clone();
+        const startQuaternion = this.camera.quaternion.clone();
+        
+        // Prepare target position
+        let targetPosition;
+        if (cameraParams.position) {
+            targetPosition = new THREE.Vector3(
+                cameraParams.position.x,
+                cameraParams.position.y,
+                cameraParams.position.z
+            );
+        } else {
+            targetPosition = this.camera.position.clone();
+        }
+        
+        // Prepare target rotation
+        let targetQuaternion;
+        if (cameraParams.lookAt) {
+            // Create a temporary camera to calculate the quaternion from lookAt
+            const tempCamera = this.camera.clone();
+            tempCamera.position.copy(targetPosition);
+            tempCamera.lookAt(
+                cameraParams.lookAt.x, 
+                cameraParams.lookAt.y, 
+                cameraParams.lookAt.z
+            );
+            targetQuaternion = tempCamera.quaternion.clone();
+        } else if (cameraParams.rotation) {
+            // Create quaternion from Euler rotation
+            targetQuaternion = new THREE.Quaternion().setFromEuler(
+                new THREE.Euler(
+                    cameraParams.rotation.x,
+                    cameraParams.rotation.y,
+                    cameraParams.rotation.z,
+                    'XYZ'
+                )
+            );
+        } else {
+            // Keep current rotation
+            targetQuaternion = this.camera.quaternion.clone();
+        }
+        
+        // Set up the transition state
+        this.state.cameraTransition = {
+            startPosition: startPosition,
+            targetPosition: targetPosition,
+            startQuaternion: startQuaternion,
+            targetQuaternion: targetQuaternion,
+            startTime: Date.now(),
+            duration: cameraParams.transitionDuration || this.config.camera.transitionDuration,
+            callback: callback,
+            isActive: true
+        };
+        
+        if (this.config.debug) {
+            console.log("Starting camera transition", {
+                from: this.state.cameraTransition.startPosition,
+                to: this.state.cameraTransition.targetPosition,
+                duration: this.state.cameraTransition.duration
+            });
+        }
+    }
+    
+    /**
+     * Update camera transition (called from the update method)
+     */
+    updateCameraTransition() {
+        const transition = this.state.cameraTransition;
+        if (!transition || !transition.isActive) return;
+        
+        const elapsed = Date.now() - transition.startTime;
+        const progress = Math.min(elapsed / transition.duration, 1);
+        
+        // Use easing function for smooth transition
+        const eased = this._easeInOutCubic(progress);
+        
+        // Interpolate camera position
+        this.camera.position.lerpVectors(
+            transition.startPosition, 
+            transition.targetPosition, 
+            eased
+        );
+        
+        // Interpolate camera rotation (quaternion)
+        this.camera.quaternion.slerpQuaternions(
+            transition.startQuaternion,
+            transition.targetQuaternion,
+            eased
+        );
+        
+        // Log for debugging
+        if (this.config.debug && progress % 0.1 < 0.01) {
+            console.log(`Camera transition progress: ${Math.round(progress * 100)}%`, this.camera.position);
+        }
+        
+        // Check if transition is complete
+        if (progress >= 1) {
+            if (this.config.debug) {
+                console.log("Camera transition complete", this.camera.position);
+            }
+            transition.isActive = false;
+            
+            if (transition.callback) {
+                transition.callback();
+            }
+        }
+    }
+    
+    /**
+     * Cubic easing function for smooth transitions
+     * @private
+     */
+    _easeInOutCubic(t) {
+        return t < 0.5
+            ? 4 * t * t * t
+            : 1 - Math.pow(-2 * t + 2, 3) / 2;
+    }
+    
     // Update method including neural network update
     update(deltaTime) {
         // Step the physics world
@@ -320,17 +575,88 @@ export default class SceneManager {
             this.textPhysics.update(deltaTime);
         }
         
+        // Update camera transitions
+        this.updateCameraTransition();
+        
+        // Update background color transition
+        this._updateBackgroundColor(deltaTime);
+        
         // Update neural network animations if initialized
         // Note: We update animations regardless of current view to ensure camera transitions complete
         if (this.neuralNetworkManager) {
             this.neuralNetworkManager.updateAnimations();
         }
+        this.updateBackgroundColor(deltaTime);
         
         // Update all objects
         this.interactiveObjects.forEach(object => object.update(deltaTime));
         
         // Render scene
         this.renderer.render(this.scene, this.camera);
+    }
+    
+    /**
+     * Set background color directly
+     * @param {number|string} color - Hex color value
+     */
+    setBackgroundColor(color) {
+        // Convert to THREE.Color if needed
+        const newColor = color instanceof THREE.Color ? color : new THREE.Color(color);
+        
+        // Apply to scene
+        this.scene.background = newColor;
+        
+        // Store in config
+        this.config.scene.background = color;
+        
+        // Reset transition state if color was set directly
+        if (this.config.scene.backgroundTransition.enabled) {
+            const bgState = this.state.backgroundTransition;
+            bgState.currentColor.copy(newColor);
+            bgState.startTime = Date.now();
+            bgState.progress = 0;
+            bgState.lastProgress = 0;
+        }
+    }
+    
+    /**
+     * Set background color transition parameters
+     * @param {Object} params - Transition parameters
+     * @param {boolean} params.enabled - Enable/disable transition
+     * @param {Array} params.colors - Array of colors to cycle through
+     * @param {number} params.transitionSpeed - Speed of transition (0-10)
+     * @param {string} params.transitionMethod - 'rgb' or 'hsl'
+     */
+    setBackgroundTransition(params) {
+        // Merge with existing config
+        const bgConfig = this.config.scene.backgroundTransition;
+        
+        if (params.enabled !== undefined) bgConfig.enabled = params.enabled;
+        if (params.colors !== undefined && params.colors.length >= 2) {
+            bgConfig.colors = [...params.colors];
+        }
+        if (params.transitionSpeed !== undefined) {
+            bgConfig.transitionSpeed = Math.max(0.01, Math.min(10, params.transitionSpeed));
+        }
+        if (params.transitionMethod !== undefined) {
+            bgConfig.transitionMethod = ['rgb', 'hsl'].includes(params.transitionMethod) 
+                ? params.transitionMethod 
+                : 'rgb';
+        }
+        
+        // Reset transition state
+        const bgState = this.state.backgroundTransition;
+        bgState.startTime = Date.now();
+        bgState.currentColorIndex = 0;
+        bgState.nextColorIndex = 1;
+        bgState.progress = 0;
+        bgState.lastProgress = 0;
+        
+        // Set initial color
+        if (bgConfig.colors.length > 0) {
+            bgState.currentColor = new THREE.Color(bgConfig.colors[0]);
+            this.scene.background.copy(bgState.currentColor);
+        }
     }
     
     // Clean up resources
@@ -376,6 +702,9 @@ export default class SceneManager {
         // Create scene
         this.scene = new THREE.Scene();
         this.scene.background = new THREE.Color(this.config.scene.background);
+        
+        // Initialize background transition state
+        this.state.backgroundTransition.currentColor = new THREE.Color(this.config.scene.background);
 
         // Create camera
         this.camera = new THREE.PerspectiveCamera(
@@ -384,11 +713,31 @@ export default class SceneManager {
             this.config.camera.near,
             this.config.camera.far
         );
+        
+        // Set initial camera position
         this.camera.position.set(
             this.config.camera.position.x,
             this.config.camera.position.y,
             this.config.camera.position.z
         );
+        
+        // Set initial camera rotation if provided
+        if (this.config.camera.rotation) {
+            this.camera.rotation.set(
+                this.config.camera.rotation.x,
+                this.config.camera.rotation.y,
+                this.config.camera.rotation.z
+            );
+        }
+        
+        // Make camera look at target if provided
+        if (this.config.camera.lookAt) {
+            this.camera.lookAt(
+                this.config.camera.lookAt.x,
+                this.config.camera.lookAt.y,
+                this.config.camera.lookAt.z
+            );
+        }
 
         // Create renderer
         this.renderer = new THREE.WebGLRenderer({ 
@@ -953,21 +1302,31 @@ export default class SceneManager {
             }
             
             if (toggle) {
-                // Return to original position
+                // Return to original position with rotation
                 console.log('Moving camera back to original position');
-                this.camera.position.set(
-                    this.config.camera.position.x,
-                    this.config.camera.position.y,
-                    this.config.camera.position.z
-                );
+                this.transitionCamera({
+                    position: {
+                        x: this.config.camera.position.x,
+                        y: this.config.camera.position.y,
+                        z: this.config.camera.position.z
+                    },
+                    rotation: this.config.camera.rotation,
+                    lookAt: this.config.camera.lookAt,
+                    transitionDuration: this.config.camera.transitionDuration
+                });
             } else {
-                // Move to network view position
+                // Move to network view position with rotation
                 console.log('Moving camera to network view position');
-                this.camera.position.set(
-                    this.config.neuralNetwork.camera.position.x,
-                    this.config.neuralNetwork.camera.position.y,
-                    this.config.neuralNetwork.camera.position.z
-                );
+                this.transitionCamera({
+                    position: {
+                        x: this.config.neuralNetwork.camera.position.x,
+                        y: this.config.neuralNetwork.camera.position.y,
+                        z: this.config.neuralNetwork.camera.position.z
+                    },
+                    rotation: this.config.neuralNetwork.camera.rotation,
+                    lookAt: this.config.neuralNetwork.camera.lookAt,
+                    transitionDuration: this.config.neuralNetwork.camera.transitionDuration
+                });
             }
             
             toggle = !toggle;
@@ -998,13 +1357,43 @@ export default class SceneManager {
     updateConfig(newConfig) {
         this.config = this._mergeConfig(this.config, newConfig);
         
-        // Update camera position if not in network view
-        if (this.state.currentView !== 'network') {
-            this.camera.position.set(
-                this.config.camera.position.x,
-                this.config.camera.position.y,
-                this.config.camera.position.z
-            );
+        // Update camera position if not in network view and not in transition
+        if (this.state.currentView !== 'network' && !this.state.cameraTransition) {
+            // Apply camera position
+            if (this.config.camera.position) {
+                this.camera.position.set(
+                    this.config.camera.position.x,
+                    this.config.camera.position.y,
+                    this.config.camera.position.z
+                );
+            }
+            
+            // Apply camera rotation if provided
+            if (this.config.camera.rotation) {
+                this.camera.rotation.set(
+                    this.config.camera.rotation.x,
+                    this.config.camera.rotation.y,
+                    this.config.camera.rotation.z
+                );
+            }
+            
+            // Make camera look at target if provided
+            if (this.config.camera.lookAt) {
+                this.camera.lookAt(
+                    this.config.camera.lookAt.x,
+                    this.config.camera.lookAt.y,
+                    this.config.camera.lookAt.z
+                );
+            }
+        }
+        
+        // Update background color/transition settings
+        if (newConfig.scene && newConfig.scene.background) {
+            this.setBackgroundColor(newConfig.scene.background);
+        }
+        
+        if (newConfig.scene && newConfig.scene.backgroundTransition) {
+            this.setBackgroundTransition(newConfig.scene.backgroundTransition);
         }
         
         // Other updates can be applied as needed
