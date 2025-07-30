@@ -833,6 +833,45 @@ export default class SceneManager {
             .filter(mesh => mesh != null);
     }
 
+    /**
+     * Get the topmost interactive object at the current mouse position
+     * @private
+     * @returns {InteractiveObject|null} The topmost object or null
+     */
+    _getTopmostObject(intersects) {
+        if (intersects.length === 0) return null;
+        
+        // Sort intersects by distance (closest first)
+        const sortedIntersects = [...intersects].sort((a, b) => a.distance - b.distance);
+        
+        // For cards specifically, also consider their z-position
+        let topmost = null;
+        let highestZ = -Infinity;
+        
+        for (const intersect of sortedIntersects) {
+            const obj = this._findParentObject(intersect.object);
+            if (!obj) continue;
+            
+            // Skip buttons for drag operations
+            if (obj instanceof ConfirmButton) continue;
+            
+            // Check z-position for cards
+            if (obj instanceof InteractiveCard) {
+                if (obj.position.z > highestZ) {
+                    highestZ = obj.position.z;
+                    topmost = obj;
+                }
+            } else if (!topmost) {
+                // If no card found yet, use the first non-card object
+                topmost = obj;
+            }
+        }
+        
+        return topmost;
+    }
+
+    
+
     _findParentObject(mesh) {
         return mesh?.userData?.parent || null;
     }
@@ -875,27 +914,27 @@ export default class SceneManager {
         // Regular interactive object handling
         if (this.state.currentView === 'network') return;
         
-        // Get all intersected objects (excluding buttons)
+        // Get all intersected objects
         const intersects = this.raycaster.intersectObjects(this._getInteractiveMeshes());
-
-        if (intersects.length > 0) {
-            const intersectedObject = this._findParentObject(intersects[0].object);
-            if (intersectedObject && !(intersectedObject instanceof ConfirmButton)) {
-                this.draggedObject = intersectedObject;
-                
-                // Create event object with necessary data
-                const eventData = {
-                    clientX: event.clientX,
-                    clientY: event.clientY,
-                    ray: this.raycaster.ray,
-                    camera: this.camera
-                };
-                
-                intersectedObject.onDragStart(eventData);
-                
-                // Bring object to front
-                this._bringToFront(intersectedObject);
-            }
+        
+        // Get only the topmost object
+        const topmostObject = this._getTopmostObject(intersects);
+        
+        if (topmostObject) {
+            this.draggedObject = topmostObject;
+            
+            // Create event object with necessary data
+            const eventData = {
+                clientX: event.clientX,
+                clientY: event.clientY,
+                ray: this.raycaster.ray,
+                camera: this.camera
+            };
+            
+            topmostObject.onDragStart(eventData);
+            
+            // Bring object to front
+            this._bringToFront(topmostObject);
         }
     }
 
@@ -1062,15 +1101,42 @@ export default class SceneManager {
     }
 
     _bringToFront(object) {
-        // Calculate new z-position that's slightly in front of all other objects
-        let maxZ = Math.max(
-            ...Array.from(this.interactiveObjects).map(obj => obj.position.z)
-        );
+        // Get all card z-positions
+        const cardZPositions = Array.from(this.interactiveObjects)
+            .filter(obj => obj instanceof InteractiveCard)
+            .map(obj => obj.position.z)
+            .sort((a, b) => a - b);
         
-        // Only adjust if the object is not already selected (which elevates it)
-        if (!object._state.isSelected) {
-            object.position.z = maxZ + 0.01;
+        // Calculate new z-position that's clearly in front
+        const maxZ = cardZPositions.length > 0 ? cardZPositions[cardZPositions.length - 1] : 0;
+        
+        // Use a larger increment to ensure clear separation
+        const zIncrement = 0.1; // Increased from 0.01 for better separation
+        
+        // Only adjust if the object is not already at the front
+        if (object.position.z < maxZ) {
+            object.position.z = maxZ + zIncrement;
+            
+            // Optionally, normalize z-positions to prevent drift
+            if (cardZPositions.length > 10) { // Arbitrary threshold
+                this._normalizeCardZPositions();
+            }
         }
+    }
+    
+    /**
+     * Normalize card z-positions to prevent excessive z-drift
+     * @private
+     */
+    _normalizeCardZPositions() {
+        const cards = Array.from(this.interactiveObjects)
+            .filter(obj => obj instanceof InteractiveCard)
+            .sort((a, b) => a.position.z - b.position.z);
+        
+        // Reset z-positions with consistent spacing
+        cards.forEach((card, index) => {
+            card.position.z = index * 0.1;
+        });
     }
 
     /**

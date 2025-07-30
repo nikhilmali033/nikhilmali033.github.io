@@ -14,51 +14,74 @@ const customConfig = {
         fov: 75,
         near: 0.1,
         far: 1000,
-        position: { x: 0, y: 0, z: 5 },
+        position: { x: 0, y: 0, z: 8 }, // Pulled back to see all cards
         rotation: { x: 0, y: 0, z: 0 },
-        // Or use lookAt instead of rotation
         lookAt: { x: 0, y: 0, z: 0 },
-        transitionDuration: 1000 // ms
+        transitionDuration: 1000
     },
 
     scene: {
-        background: 0x000033, // Base color
+        background: 0x000033,
         backgroundTransition: {
             enabled: true,
-            colors: [0x000033, 0x330033, 0x003333], // Deep blue, purple, teal
-            transitionSpeed: 0.005 // Very slow transition
+            colors: [0x000033, 0x330033, 0x003333],
+            transitionSpeed: 0.005
         }
     },
     
-    // Customize card physics
+    // Card configuration
     card: {
         physics: {
-            strength: 0.35,      // Slightly more springy
-            wiggleStrength: 0.6  // More pronounced wiggle
+            strength: 0.35,
+            wiggleStrength: 0.6
         },
         dragging: {
-            returnSpeed: 0.12    // Faster return to origin
+            returnSpeed: 0.12
         }
     },
     
-    // Adjust neural network settings
+    // Neural network settings
     neuralNetwork: {
-        // Camera settings with rotation
         camera: {
             position: { x: -10, y: 2, z: 15 },
-            // Example 1: Using rotation
             rotation: { x: 10, y: 0.2, z: 0 },
-            // Example 2: Or use lookAt (will override rotation if both are set)
             lookAt: { x: 0, y: 0, z: 0 },
-            transitionDuration: 1200 // ms
+            transitionDuration: 1200
         },
-        // More connections for better visualization
         animation: {
             connectionsPerNeuron: 7,
             randomDelayFactor: 800
         }
     }
 };
+
+// Card configurations
+const cardConfigs = [
+    {
+        texture: './textures/joker.png',
+        position: { x: -4.5, y: 0, z: 0 },
+        name: 'joker',
+        targetScene: 'neural'
+    },
+    {
+        texture: './textures/ace.png', // You'll need to add this texture
+        position: { x: -1.5, y: 0, z: 0 },
+        name: 'ace',
+        targetScene: 'particles' // Future scene
+    },
+    {
+        texture: './textures/king.png', // You'll need to add this texture
+        position: { x: 1.5, y: 0, z: 0 },
+        name: 'king',
+        targetScene: 'physics' // Future scene
+    },
+    {
+        texture: './textures/queen.png', // You'll need to add this texture
+        position: { x: 4.5, y: 0, z: 0 },
+        name: 'queen',
+        targetScene: 'gallery' // Future scene
+    }
+];
 
 function init() {
     const container = document.getElementById('app');
@@ -70,76 +93,164 @@ function init() {
     // Initialize text physics for animations
     sceneManager.initTextPhysics();
     
-    // Load card texture
+    // Create texture loader
     const textureLoader = new THREE.TextureLoader();
-    textureLoader.load('./textures/joker.png', (texture) => {
-        // Add card - the config will be applied from the global sceneManager.config
-        const card = sceneManager.addCard(texture);
-        
-        // Add analyze button for neural network
-        sceneManager.addAnalyzeButton();
-        
-        // Add debug camera button
-        sceneManager.addDebugCameraButton();
-        
-        // Set initial welcome text
-        sceneManager.animateText("Select a Card");
-        
-        // Example of runtime configuration update with camera changes
-        setTimeout(() => {
-            console.log("Updating configuration with camera rotation...");
-            sceneManager.updateConfig({
-                camera: {
-                    // Slight tilt to make the scene more dynamic
-                    rotation: { x: 0.05, y: -0.1, z: 0.03 }
-                },
-                neuralNetwork: {
-                    camera: {
-                        position: { x: 8, y: 3, z: 20 },
-                        rotation: { x: -0.1, y: 0.3, z: 0.05 },
-                        transitionDuration: 1500
+    const loadingManager = new THREE.LoadingManager();
+    
+    // Track loaded cards
+    let cardsLoaded = 0;
+    const totalCards = cardConfigs.length;
+    
+    // Load all card textures
+    cardConfigs.forEach((cardConfig, index) => {
+        textureLoader.load(
+            cardConfig.texture,
+            // Success callback
+            (texture) => {
+                // Add card with specific position
+                const card = sceneManager.addCard(texture, {
+                    position: cardConfig.position,
+                    userData: {
+                        name: cardConfig.name,
+                        targetScene: cardConfig.targetScene,
+                        index: index // Track original index for z-ordering
                     },
-                    animation: {
-                        arcHeight: 0.8,      // Higher arcs for data cubes
-                        duration: 800        // Faster animations
+                    dragBehavior: {
+                        returnSpeed: 0.12,
+                        dampingFactor: 0.95,
+                        enabled: true,
+                        // Add custom return position
+                        returnPosition: cardConfig.position
                     }
+                });
+                
+                
+                // Store reference to card for later use
+                cardConfig.cardObject = card;
+                
+                cardsLoaded++;
+                console.log(`Loaded ${cardConfig.name} card (${cardsLoaded}/${totalCards})`);
+                
+                // When all cards are loaded
+                if (cardsLoaded === totalCards) {
+                    onAllCardsLoaded();
                 }
-            });
-            
-            // Demonstrate camera transition directly
-            setTimeout(() => {
-                if (sceneManager.state.currentView === 'card') {
-                    console.log("Demonstrating smooth camera transition...");
-                    // Example of a camera move with rotation in the card view
-                    sceneManager.transitionCamera({
-                        position: { x: -2, y: 1, z: 6 },
-                        rotation: { x: 0.1, y: -0.2, z: 0 },
-                        transitionDuration: 2000
-                    }, () => {
-                        console.log("Camera transition complete");
-                        
-                        // Return to original position after 3 seconds
-                        setTimeout(() => {
-                            sceneManager.transitionCamera({
-                                position: sceneManager.config.camera.position,
-                                rotation: sceneManager.config.camera.rotation,
-                                lookAt: sceneManager.config.camera.lookAt,
-                                transitionDuration: 2000
-                            });
-                        }, 3000);
-                    });
+            },
+            // Progress callback
+            undefined,
+            // Error callback
+            (error) => {
+                console.error(`Failed to load texture ${cardConfig.texture}:`, error);
+                // Create placeholder card
+                const placeholderTexture = createPlaceholderTexture(cardConfig.name);
+                const card = sceneManager.addCard(placeholderTexture, {
+                    position: cardConfig.position,
+                    userData: {
+                        name: cardConfig.name,
+                        targetScene: cardConfig.targetScene,
+                        index: index
+                    }
+                });
+                
+                cardConfig.cardObject = card;
+                cardsLoaded++;
+                
+                if (cardsLoaded === totalCards) {
+                    onAllCardsLoaded();
                 }
-            }, 2000);
-        }, 5000);
+            }
+        );
+    });
+    
+    // Start animation loop
+    animate();
+}
+
+function createPlaceholderTexture(name) {
+    // Create a canvas texture as placeholder
+    const canvas = document.createElement('canvas');
+    canvas.width = 256;
+    canvas.height = 384;
+    const ctx = canvas.getContext('2d');
+    
+    // Background
+    ctx.fillStyle = '#2a1b3d';
+    ctx.fillRect(0, 0, canvas.width, canvas.height);
+    
+    // Border
+    ctx.strokeStyle = '#fff';
+    ctx.lineWidth = 4;
+    ctx.strokeRect(10, 10, canvas.width - 20, canvas.height - 20);
+    
+    // Text
+    ctx.fillStyle = '#fff';
+    ctx.font = 'bold 48px Arial';
+    ctx.textAlign = 'center';
+    ctx.textBaseline = 'middle';
+    ctx.fillText(name.toUpperCase(), canvas.width / 2, canvas.height / 2);
+    
+    return new THREE.CanvasTexture(canvas);
+}
+
+function onAllCardsLoaded() {
+    console.log('All cards loaded!');
+    
+    // Add buttons
+    sceneManager.addAnalyzeButton();
+    sceneManager.addDebugCameraButton();
+    
+    // Set initial welcome text
+    sceneManager.animateText("Select a Card");
+    
+    // Set up card-specific behaviors
+    cardConfigs.forEach(config => {
+        const card = config.cardObject;
+        if (!card) return;
         
-        // Start animation loop
-        animate();
+        // Override the hover behavior to show card name
+        const originalOnPointerEnter = card.onPointerEnter.bind(card);
+        card.onPointerEnter = function(event) {
+            originalOnPointerEnter(event);
+            if (this._state.isHovering && !this._state.isDragging && sceneManager) {
+                sceneManager.animateText(config.name.toUpperCase());
+            }
+        };
+        
+        // Set up selection callback for scene transition
+        card.setCallback('onSelect', () => {
+            console.log(`Card ${config.name} selected`);
+            
+            // Handle scene transitions based on card
+            switch(config.targetScene) {
+                case 'neural':
+                    // Existing neural network scene
+                    if (sceneManager.hasSelectedCards()) {
+                        console.log('Ready to analyze with neural network');
+                    }
+                    break;
+                case 'particles':
+                    // Future particle scene
+                    console.log('Particle scene not implemented yet');
+                    sceneManager.animateText("Coming Soon!");
+                    break;
+                case 'physics':
+                    // Future physics playground
+                    console.log('Physics scene not implemented yet');
+                    sceneManager.animateText("Coming Soon!");
+                    break;
+                case 'gallery':
+                    // Future gallery scene
+                    console.log('Gallery scene not implemented yet');
+                    sceneManager.animateText("Coming Soon!");
+                    break;
+            }
+        });
     });
 }
 
 function animate() {
     animationFrameId = requestAnimationFrame(animate);
-    sceneManager.update(1/60);  // Use fixed deltaTime or calculate actual time delta
+    sceneManager.update(1/60);
 }
 
 function cleanup() {

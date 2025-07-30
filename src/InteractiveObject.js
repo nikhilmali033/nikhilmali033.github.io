@@ -72,6 +72,12 @@ export default class InteractiveObject extends THREE.Object3D {
             this.config.position.y,
             this.config.position.z
         );
+
+        this.returnPosition = new THREE.Vector3(
+            this.config.position.x,
+        this.config.position.y,
+        this.config.position.z
+        );
     }
     
     /**
@@ -246,10 +252,10 @@ export default class InteractiveObject extends THREE.Object3D {
             this.position.add(this._state.velocity);
             this._state.velocity.multiplyScalar(this.config.dragBehavior.dampingFactor);
             
-            // Return to origin (x,y only)
-            const targetPosition = new THREE.Vector3(0, 0, this.position.z);
-            this.position.x += (targetPosition.x - this.position.x) * this.config.dragBehavior.returnSpeed;
-            this.position.y += (targetPosition.y - this.position.y) * this.config.dragBehavior.returnSpeed;
+            // CHANGED: Return to initial position instead of origin
+            this.position.x += (this.returnPosition.x - this.position.x) * this.config.dragBehavior.returnSpeed;
+            this.position.y += (this.returnPosition.y - this.position.y) * this.config.dragBehavior.returnSpeed;
+            // Keep z-position changes (for selection elevation)
         }
     }
     
