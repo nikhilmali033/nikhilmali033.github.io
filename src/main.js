@@ -64,22 +64,22 @@ const cardConfigs = [
         targetScene: 'neural'
     },
     {
-        texture: './textures/ace.png', // You'll need to add this texture
+        texture: './textures/joker.png', // You'll need to add this texture
         position: { x: -1.5, y: 0, z: 0 },
         name: 'ace',
-        targetScene: 'particles' // Future scene
+        targetScene: 'neural' // Future scene
     },
     {
-        texture: './textures/king.png', // You'll need to add this texture
+        texture: './textures/joker.png', // You'll need to add this texture
         position: { x: 1.5, y: 0, z: 0 },
         name: 'king',
-        targetScene: 'physics' // Future scene
+        targetScene: 'neural' // Future scene
     },
     {
-        texture: './textures/queen.png', // You'll need to add this texture
+        texture: './textures/joker.png', // You'll need to add this texture
         position: { x: 4.5, y: 0, z: 0 },
         name: 'queen',
-        targetScene: 'gallery' // Future scene
+        targetScene: 'neural' // Future scene
     }
 ];
 
@@ -139,6 +139,7 @@ function init() {
             // Progress callback
             undefined,
             // Error callback
+            // Error callback
             (error) => {
                 console.error(`Failed to load texture ${cardConfig.texture}:`, error);
                 // Create placeholder card
@@ -149,6 +150,12 @@ function init() {
                         name: cardConfig.name,
                         targetScene: cardConfig.targetScene,
                         index: index
+                    },
+                    dragBehavior: {
+                        returnSpeed: 0.12,
+                        dampingFactor: 0.95,
+                        enabled: true,
+                        returnPosition: cardConfig.position
                     }
                 });
                 
