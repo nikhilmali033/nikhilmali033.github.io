@@ -6,3 +6,7 @@ case 'particles':
     break;
 under main ~200 method assignment
 ts pmo fr
+
+change scenemanager to not have config control, we don't need to merge here
+
+make cards not get stuck when selected and hovered and moved off

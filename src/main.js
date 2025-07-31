@@ -33,7 +33,10 @@ const customConfig = {
     card: {
         physics: {
             strength: 0.35,
-            wiggleStrength: 0.6
+            damping: 0.75,
+            wiggleStrength: 0.6,
+            zStrength: 0.5,
+            zDamping: 0.7
         },
         dragging: {
             returnSpeed: 0.12
@@ -114,13 +117,6 @@ function init() {
                         name: cardConfig.name,
                         targetScene: cardConfig.targetScene,
                         index: index // Track original index for z-ordering
-                    },
-                    dragBehavior: {
-                        returnSpeed: 0.12,
-                        dampingFactor: 0.95,
-                        enabled: true,
-                        // Add custom return position
-                        returnPosition: cardConfig.position
                     }
                 });
                 

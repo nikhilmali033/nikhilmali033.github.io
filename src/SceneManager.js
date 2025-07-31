@@ -61,7 +61,9 @@ export default class SceneManager {
                     strength: 0.3,       // Spring strength for animations
                     damping: 0.75,       // Damping factor for animations
                     wiggleStrength: 0.5, // Strength of wiggle animation
-                    wiggleDamping: 0.6   // Damping of wiggle animation
+                    wiggleDamping: 0.6,   // Damping of wiggle animation
+                    zStrength: 0.4,
+                    zDamping: 0.2
                 },
                 dragging: {
                     returnSpeed: 0.1,    // Speed of return to origin
@@ -1243,7 +1245,9 @@ export default class SceneManager {
                 strength: this.config.card.physics.strength,
                 damping: this.config.card.physics.damping,
                 wiggleStrength: this.config.card.physics.wiggleStrength,
-                wiggleDamping: this.config.card.physics.wiggleDamping
+                wiggleDamping: this.config.card.physics.wiggleDamping,
+                zStrength: this.config.card.physics.zStrength,
+                zDamping: this.config.card.physics.zDamping
             },
             dragBehavior: {
                 returnSpeed: this.config.card.dragging.returnSpeed,

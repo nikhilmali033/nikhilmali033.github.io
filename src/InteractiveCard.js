@@ -7,11 +7,14 @@ export default class InteractiveCard extends InteractiveObject {
         width = 2,
         height = 3,
         position = { x: 0, y: 0, z: 0 },
+        idlePhase = Math.random(),
         springPhysics = {
             strength: 0.3,
             damping: 0.75,
             wiggleStrength: 0.5,
-            wiggleDamping: 0.6
+            wiggleDamping: 0.6,
+            zStrength: 0.5,
+            zDamping: 0.5
         },
         dragBehavior = {
             returnSpeed: 0.1,
@@ -56,7 +59,8 @@ export default class InteractiveCard extends InteractiveObject {
             // Card rotation
             targetRotation: new THREE.Euler(),
             // Offset for pivot point
-            pivotOffset: 0.7
+            pivotOffset: 0.7,
+            idlePhase: idlePhase * Math.PI * 2
         };
 
         // Create card mesh
@@ -144,6 +148,11 @@ export default class InteractiveCard extends InteractiveObject {
         if (!this._state.isHovering && !this._state.isDragging) {
             this._cardState.targetScale = this._state.isSelected ? 1.1 : 1.0;
             this._cardState.isInitialHover = false;
+            // Reset wiggle rotation to prevent permanent offset
+            this._cardState.wiggleRotation = 0;
+            console.log("mouseleft")
+            this._cardState.isInitialHover = true;
+            this._cardState.wiggleVelocity = 0;
         }
     }
 
@@ -245,7 +254,7 @@ export default class InteractiveCard extends InteractiveObject {
     _updateRotation() {
         if (!this._state.isDragging && !this._state.isHovering && !this._state.isSelected) {
             // Idle animation
-            const time = Date.now() * 0.001;
+            const time = Date.now() * 0.001 + this._cardState.idlePhase;
             this._cardState.targetRotation.x = Math.sin(time) * 0.1;
             this._cardState.targetRotation.y = Math.cos(time) * 0.1;
         }
@@ -264,9 +273,9 @@ export default class InteractiveCard extends InteractiveObject {
     _updateGlow() {
         // Spring physics for glow intensity
         const glowDiff = this._cardState.targetGlowIntensity - this._cardState.glowIntensity;
-        const glowForce = glowDiff * 0.2; // Using a different strength for glow
+        const glowForce = glowDiff * this.config.springPhysics.zStrength; // Using a different strength for glow
         this._cardState.glowVelocity += glowForce;
-        this._cardState.glowVelocity *= 0.9; // Damping
+        this._cardState.glowVelocity *= this.config.springPhysics.zDamping; // Damping
         this._cardState.glowIntensity += this._cardState.glowVelocity;
         
         // Apply glow intensity
@@ -276,9 +285,11 @@ export default class InteractiveCard extends InteractiveObject {
     _updateElevation() {
         // Spring physics for z position (elevation)
         const zDiff = this._cardState.targetZ - this.position.z;
-        const zForce = zDiff * 0.2;
+        const zForce = zDiff * this.config.springPhysics.zStrength;
+        console.log("zstregnth: ", this.config.springPhysics.zStrength)
+        console.log("zdamping ", this.config.springPhysics.zDamping)
         this._cardState.zVelocity += zForce;
-        this._cardState.zVelocity *= 0.9; // Damping
+        this._cardState.zVelocity *= this.config.springPhysics.zDamping; // Damping
         this.position.z += this._cardState.zVelocity;
     }
 
