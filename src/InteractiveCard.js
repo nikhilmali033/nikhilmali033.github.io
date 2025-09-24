@@ -180,32 +180,44 @@ export default class InteractiveCard extends InteractiveObject {
         // Card-specific drag start behavior
     }
 
+    // Override onDragEnd to properly handle clicks - FIXED VERSION
     onDragEnd(event) {
         super.onDragEnd(event);
         
         // Reset z-rotation
         this.rotation.z = 0;
         
+        // Reset scale if not hovering or selected
         if (!this._state.isHovering && !this._state.isSelected) {
             this._cardState.targetScale = 1.0;
             this._cardState.isInitialHover = false;
         }
+        
+        // The click detection and selection toggle is handled in the parent class
+        // We just need to ensure our state is correct
+        console.log(`Card drag ended. Current selection state: ${this._state.isSelected}`);
     }
 
-    // Override toggleSelected from base class
     toggleSelected() {
+        // Call parent implementation
         super.toggleSelected();
+        
+        console.log(`Card toggled. Selected: ${this._state.isSelected}`);
         
         if (this._state.isSelected) {
             // Enter selected state
             this._cardState.targetScale = 1.1;
             this._cardState.targetGlowIntensity = 0.7;
-            this._cardState.targetZ = 0.5; // Lift card up a bit
+            this._cardState.targetZ = 0.5; // Lift card up
+            
+            console.log(`Card selected - targetZ: ${this._cardState.targetZ}`);
         } else {
             // Exit selected state
             this._cardState.targetScale = this._state.isHovering ? 1.1 : 1.0;
             this._cardState.targetGlowIntensity = 0;
             this._cardState.targetZ = 0;
+            
+            console.log(`Card deselected - targetZ: ${this._cardState.targetZ}`);
         }
     }
 

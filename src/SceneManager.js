@@ -1173,17 +1173,21 @@ export default class SceneManager {
     }
     
     /**
-     * Handle object selection state change
+     * Handle object selection state change - FIXED VERSION
      * @param {InteractiveObject} object - The object that changed state
      * @private
      */
     _handleSelectionChange(object) {
-        // Currently only tracking cards
+        console.log(`Selection change for object:`, object);
+        
+        // Only track cards
         if (object instanceof InteractiveCard) {
             if (object._state.isSelected) {
                 this.state.selectedCards.add(object);
+                console.log(`Card selected. Total selected: ${this.state.selectedCards.size}`);
             } else {
                 this.state.selectedCards.delete(object);
+                console.log(`Card deselected. Total selected: ${this.state.selectedCards.size}`);
             }
             
             // Notify listeners
@@ -1208,7 +1212,7 @@ export default class SceneManager {
     }
 
     /**
-     * Add an interactive object to the scene
+     * Add an interactive object to the scene - FIXED VERSION
      * @param {InteractiveObject} object - The object to add
      */
     addObject(object) {
@@ -1221,11 +1225,17 @@ export default class SceneManager {
         
         this.scene.add(object);
         
-        // Set up selection change tracking
-        if ('setCallback' in object) {
-            // Listen for selection changes
-            object.setCallback('onSelect', () => this._handleSelectionChange(object));
-            object.setCallback('onDeselect', () => this._handleSelectionChange(object));
+        // FIXED: Properly set up selection tracking for cards
+        if (object instanceof InteractiveCard) {
+            // Store reference to scene manager
+            const sceneManager = this;
+            
+            // Override the toggleSelected method to ensure we track changes
+            const originalToggleSelected = object.toggleSelected.bind(object);
+            object.toggleSelected = function() {
+                originalToggleSelected();
+                sceneManager._handleSelectionChange(this);
+            };
         }
         
         return object;
@@ -1300,19 +1310,22 @@ export default class SceneManager {
     }
     
     /**
-     * Create and add an analyze button for neural network visualization
+     * Create and add an analyze button for neural network visualization - FIXED VERSION
      * @param {Object} config - Button configuration
      * @return {ConfirmButton} The created button
      */
     addAnalyzeButton(config = {}) {
         const buttonConfig = {
-            width: this.config.button.dimensions.analyzeWidth,
-            height: this.config.button.dimensions.analyzeHeight,
-            position: this.config.button.positions.analyze,
+            width: this.config.button.dimensions.analyzeWidth || 1.5,
+            height: this.config.button.dimensions.analyzeHeight || 0.5,
+            depth: 0.1,
+            position: this.config.button.positions.analyze || { x: 2, y: -2, z: 0.1 },
             text: 'Analyze Card',
             fontColor: '#ffffff',
-            activeColor: this.config.button.colors.activeAnalyze,
-            inactiveColor: this.config.button.colors.inactiveAnalyze,
+            activeColor: this.config.button.colors.activeAnalyze || 0x4287f5,
+            inactiveColor: this.config.button.colors.inactiveAnalyze || 0x787878,
+            hoverColor: 0x5299ff,
+            pushDepth: 0.03,
             ...config
         };
         
@@ -1327,19 +1340,27 @@ export default class SceneManager {
         // Set up click handler to show neural network
         button.setCallback('onClick', () => {
             console.log('Analyze button clicked!');
-            this.showNeuralNetwork();
+            if (this.state.selectedCards.size > 0) {
+                this.showNeuralNetwork();
+            } else {
+                console.warn('No cards selected');
+            }
         });
         
         // Add selection listener to update button state
-        this.addSelectionListener((selectedCards) => {
+        const unsubscribe = this.addSelectionListener((selectedCards) => {
+            console.log(`Selection listener triggered. Selected cards: ${selectedCards.length}`);
             button.setActive(selectedCards.length > 0);
         });
+        
+        // Store unsubscribe function on button for cleanup
+        button._unsubscribeSelection = unsubscribe;
         
         return button;
     }
     
     /**
-     * Add a debug camera button that tests camera transitions
+     * Add a debug camera button - FIXED VERSION
      */
     addDebugCameraButton() {
         if (this.config.debug) {
@@ -1347,19 +1368,22 @@ export default class SceneManager {
         }
         
         const button = new ConfirmButton({
-            width: this.config.button.dimensions.debugWidth,
-            height: this.config.button.dimensions.debugHeight,
-            position: this.config.button.positions.debug,
+            width: this.config.button.dimensions.debugWidth || 1.2,
+            height: this.config.button.dimensions.debugHeight || 0.4,
+            depth: 0.1,
+            position: this.config.button.positions.debug || { x: 2, y: 1.5, z: 0.1 },
             text: 'Debug Camera',
             fontColor: '#ffffff',
-            activeColor: this.config.button.colors.activeDebug,
-            inactiveColor: this.config.button.colors.inactiveDebug
+            activeColor: this.config.button.colors.activeDebug || 0xff0000,
+            inactiveColor: this.config.button.colors.inactiveDebug || 0xaa0000,
+            hoverColor: 0xff3333,
+            pushDepth: 0.03
         });
         
         // Add button to scene
         this.addObject(button);
         
-        // Always active
+        // Debug button is always active
         button.setActive(true);
         
         // Set up click handler
@@ -1372,7 +1396,7 @@ export default class SceneManager {
             }
             
             if (toggle) {
-                // Return to original position with rotation
+                // Return to original position
                 console.log('Moving camera back to original position');
                 this.transitionCamera({
                     position: {
@@ -1385,7 +1409,7 @@ export default class SceneManager {
                     transitionDuration: this.config.camera.transitionDuration
                 });
             } else {
-                // Move to network view position with rotation
+                // Move to network view position
                 console.log('Moving camera to network view position');
                 this.transitionCamera({
                     position: {
